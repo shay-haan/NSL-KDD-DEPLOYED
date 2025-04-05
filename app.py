@@ -4,10 +4,8 @@ import numpy as np
 from sklearn.preprocessing import LabelEncoder, OneHotEncoder
 import xgboost as xgb
 from sklearn.linear_model import LogisticRegression
-from sklearn.ensemble import StackingClassifier
 import pickle
 import os
-import io
 
 # Set page config
 st.set_page_config(
@@ -33,7 +31,53 @@ REQUIRED_COLUMNS = [
     "dst_host_srv_rerror_rate"
 ]
 
-@st.cache_resource
+def preprocess_data(df):
+    try:
+        # Check if all required columns are present
+        missing_cols = [col for col in REQUIRED_COLUMNS if col not in df.columns]
+        if missing_cols:
+            st.error(f"Missing columns: {', '.join(missing_cols)}")
+            return None
+
+        # Categorical columns
+        categorical_columns = ['protocol_type', 'service', 'flag']
+        
+        # Get numeric columns
+        numeric_columns = [col for col in REQUIRED_COLUMNS if col not in categorical_columns]
+        
+        # Convert numeric columns to float
+        df[numeric_columns] = df[numeric_columns].astype(float)
+        
+        # Create separate DataFrame for categorical data
+        df_categorical = df[categorical_columns].copy()
+        
+        # Initialize label encoders dictionary
+        label_encoders = {}
+        
+        # Apply Label Encoding to each categorical column
+        for column in categorical_columns:
+            label_encoders[column] = LabelEncoder()
+            df_categorical[column] = label_encoders[column].fit_transform(df_categorical[column])
+        
+        # Convert to numpy array for OneHotEncoder
+        categorical_values = df_categorical.values
+        
+        # Apply OneHotEncoder
+        onehot_encoder = OneHotEncoder(sparse_output=False)
+        categorical_encoded = onehot_encoder.fit_transform(categorical_values)
+        
+        # Combine numeric and encoded categorical features
+        numeric_values = df[numeric_columns].values
+        X = np.hstack((numeric_values, categorical_encoded))
+        
+        st.write(f"Feature vector shape: {X.shape}")
+        
+        return X
+
+    except Exception as e:
+        st.error(f"Error in preprocessing: {str(e)}")
+        return None
+
 def load_models():
     try:
         models = {
@@ -42,18 +86,6 @@ def load_models():
                 'Probe': pickle.load(open('models/xgb_Probe.pkl', 'rb')),
                 'R2L': pickle.load(open('models/xgb_R2L.pkl', 'rb')),
                 'U2R': pickle.load(open('models/xgb_U2R.pkl', 'rb'))
-            },
-            'logistic': {
-                'DoS': pickle.load(open('models/lr_DoS.pkl', 'rb')),
-                'Probe': pickle.load(open('models/lr_Probe.pkl', 'rb')),
-                'R2L': pickle.load(open('models/lr_R2L.pkl', 'rb')),
-                'U2R': pickle.load(open('models/lr_U2R.pkl', 'rb'))
-            },
-            'ensemble': {
-                'DoS': pickle.load(open('models/ensemble_DoS.pkl', 'rb')),
-                'Probe': pickle.load(open('models/ensemble_Probe.pkl', 'rb')),
-                'R2L': pickle.load(open('models/ensemble_R2L.pkl', 'rb')),
-                'U2R': pickle.load(open('models/ensemble_U2R.pkl', 'rb'))
             }
         }
         return models
@@ -61,81 +93,10 @@ def load_models():
         st.error(f"Error loading models: {str(e)}")
         return None
 
-def preprocess_data(df):
-    # Check if all required columns are present
-    missing_cols = [col for col in REQUIRED_COLUMNS if col not in df.columns]
-    if missing_cols:
-        st.error(f"Missing columns: {', '.join(missing_cols)}")
-        return None
-
-    # Categorical columns
-    categorical_columns = ['protocol_type', 'service', 'flag']
-    
-    # Define the expected categories for each categorical column
-    # These should match what you used during training
-    expected_categories = {
-        'protocol_type': ['tcp', 'udp', 'icmp'],
-        'service': [
-            'http', 'private', 'domain_u', 'smtp', 'ftp_data', 'eco_i', 'other', 
-            'auth', 'finger', 'domain', 'telnet', 'ecr_i', 'ftp', 'ssh', 'time', 
-            'whois', 'mtp', 'gopher', 'remote_job', 'rje', 'ctf', 'daytime', 
-            'systat', 'netbios_ns', 'pop_3', 'nntp', 'netbios_dgm', 'urp_i', 
-            'pm_dump', 'tftp_u', 'uucp', 'netbios_ssn', 'tim_i', 'ssh_i', 
-            'iso_tsap', 'echo', 'discard', 'printer', 'efs', 'courier', 'uucp_path',
-            'http_443', 'sunrpc', 'shell', 'sql_net', 'link', 'hostnames', 
-            'csnet_ns', 'pop_2', 'supdup', 'imap4', 'IRC', 'ntp_u', 'bgp', 
-            'exec', 'login', 'vmnet', 'Z39_50', 'name', 'ldap', 'http_8001', 
-            'klogin', 'kshell', 'aol', 'nnsp', 'http_2784', 'harvest', 'red_i'
-        ],
-        'flag': ['SF', 'S0', 'REJ', 'RSTO', 'RSTR', 'S1', 'RSTOS0', 'S2', 'S3', 'OTH', 'SH']
-    }
-
-    # Get categorical values
-    df_categorical_values = df[categorical_columns]
-    
-    # Label Encoding with fixed categories
-    label_encoders = {}
-    df_categorical_values_enc = pd.DataFrame()
-    
-    for column in categorical_columns:
-        le = LabelEncoder()
-        # Fit with expected categories
-        le.fit(expected_categories[column])
-        
-        # Transform while handling unknown categories
-        try:
-            df_categorical_values_enc[column] = le.transform(df_categorical_values[column])
-        except ValueError as e:
-            unknown_categories = set(df_categorical_values[column]) - set(expected_categories[column])
-            st.error(f"Unknown categories in {column}: {unknown_categories}")
-            return None
-    
-    # One-Hot Encoding with fixed categories
-    enc = OneHotEncoder(categories=[expected_categories[col] for col in categorical_columns],
-                       sparse_output=False,
-                       handle_unknown='error')
-    
-    try:
-        df_categorical_values_encenc = enc.fit_transform(df_categorical_values_enc)
-    except ValueError as e:
-        st.error(f"Error in one-hot encoding: {str(e)}")
-        return None
-    
-    # Get numeric columns
-    numeric_columns = [col for col in REQUIRED_COLUMNS if col not in categorical_columns]
-    df_numeric_values = df[numeric_columns].astype(float)
-    
-    # Combine numeric and categorical features
-    X = np.hstack((df_numeric_values, df_categorical_values_encenc))
-    
-    st.write(f"Feature vector shape: {X.shape}")  # Debug information
-    
-    return X
-
 def make_predictions(X, models):
     results = {}
     
-    for model_type in ['xgboost', 'logistic', 'ensemble']:
+    for model_type in ['xgboost']:
         results[model_type] = {}
         for attack_type in ['DoS', 'Probe', 'R2L', 'U2R']:
             try:
@@ -153,81 +114,67 @@ def make_predictions(X, models):
     
     return results
 
-def display_results(results, df):
-    if results is None:
-        return
-
-    st.write("## Detection Results")
-    
-    # Create tabs for different models
-    tabs = st.tabs(['XGBoost', 'Logistic Regression', 'Ensemble'])
-    
-    for tab, model_type in zip(tabs, ['xgboost', 'logistic', 'ensemble']):
-        with tab:
-            st.write(f"### {model_type.upper()} Model Results")
-            
-            # Create columns for different attack types
-            cols = st.columns(4)
-            
-            for col, attack_type in zip(cols, ['DoS', 'Probe', 'R2L', 'U2R']):
-                with col:
-                    result = results[model_type][attack_type]
-                    st.metric(
-                        label=f"{attack_type} Attacks",
-                        value=f"{result['count']}",
-                        delta=f"{result['percentage']:.2f}%"
-                    )
-            
-            # Create detailed results DataFrame
-            results_df = pd.DataFrame({
-                'DoS': results[model_type]['DoS']['predictions'],
-                'Probe': results[model_type]['Probe']['predictions'],
-                'R2L': results[model_type]['R2L']['predictions'],
-                'U2R': results[model_type]['U2R']['predictions']
-            })
-            
-            # Combine with original features
-            detailed_results = pd.concat([df, results_df], axis=1)
-            
-            st.write("### Detailed Results")
-            st.dataframe(detailed_results)
-            
-            # Download button for results
-            csv = detailed_results.to_csv(index=False)
-            st.download_button(
-                label=f"Download {model_type.upper()} results as CSV",
-                data=csv,
-                file_name=f'{model_type}_detection_results.csv',
-                mime='text/csv'
-            )
-
 def main():
     st.title('Network Intrusion Detection System')
-    st.write('Upload your test dataset to detect DoS, Probe, R2L, and U2R attacks')
-    
-    # Load models
-    models = load_models()
-    if models is None:
-        st.error("Failed to load models. Please check if model files exist in the 'models' directory.")
-        return
+    st.write('Upload your test dataset to detect network intrusions')
     
     uploaded_file = st.file_uploader("Choose a CSV file", type="csv")
     
     if uploaded_file is not None:
         try:
+            # Read the CSV file
             df = pd.read_csv(uploaded_file)
+            
+            # Show data preview
             st.write("### Dataset Preview")
             st.write(df.head())
             
+            # Preprocess data
             X = preprocess_data(df)
-            if X is not None:
-                with st.spinner('Making predictions...'):
-                    results = make_predictions(X, models)
-                    display_results(results, df)
             
+            if X is not None:
+                # Load models
+                models = load_models()
+                
+                if models is not None:
+                    # Make predictions
+                    with st.spinner('Making predictions...'):
+                        results = make_predictions(X, models)
+                        
+                        if results is not None:
+                            st.write("### Detection Results")
+                            
+                            for model_type in results:
+                                st.write(f"#### {model_type.upper()} Model Results")
+                                
+                                cols = st.columns(4)
+                                for col, (attack_type, result) in zip(cols, results[model_type].items()):
+                                    with col:
+                                        st.metric(
+                                            label=f"{attack_type} Attacks",
+                                            value=f"{result['count']}",
+                                            delta=f"{result['percentage']:.2f}%"
+                                        )
+                                
+                                # Create detailed results DataFrame
+                                detailed_results = df.copy()
+                                for attack_type, result in results[model_type].items():
+                                    detailed_results[f'{attack_type}_prediction'] = result['predictions']
+                                
+                                st.write("### Detailed Results")
+                                st.dataframe(detailed_results)
+                                
+                                # Download button for results
+                                csv = detailed_results.to_csv(index=False)
+                                st.download_button(
+                                    label=f"Download {model_type.upper()} results as CSV",
+                                    data=csv,
+                                    file_name=f'{model_type}_detection_results.csv',
+                                    mime='text/csv'
+                                )
+                
         except Exception as e:
             st.error(f"Error processing file: {str(e)}")
-            st.write("Please make sure your file is in the correct format.")
 
 if __name__ == "__main__":
     main()
