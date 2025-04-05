@@ -12,7 +12,6 @@ st.set_page_config(
 )
 
 # Define the exact categories used in NSL-KDD dataset
-# First, let's declare our categories exactly as they appear in your training data
 PROTOCOL_TYPES = ['tcp', 'udp', 'icmp']
 SERVICES = [
     'http', 'smtp', 'finger', 'domain_u', 'auth', 'telnet', 'ftp', 'eco_i', 'ntp_u',
@@ -23,9 +22,26 @@ SERVICES = [
     'supdup', 'iso_tsap', 'hostnames', 'csnet_ns', 'pop_2', 'sunrpc', 'uucp_path',
     'netbios_ns', 'netbios_ssn', 'netbios_dgm', 'sql_net', 'vmnet', 'bgp', 'Z39_50',
     'ldap', 'netstat', 'urh_i', 'X11', 'urp_i', 'pm_dump', 'tftp_u', 'tim_i',
-    'red_i', 'http_8001', 'aol', 'harvest', 'http_2784'  # Added missing services
+    'red_i', 'http_8001', 'aol', 'harvest', 'http_2784'
 ]
 FLAGS = ['SF', 'S0', 'REJ', 'RSTO', 'RSTR', 'S1', 'RSTOS0', 'S2', 'S3', 'OTH', 'SH']
+
+# Define required columns
+REQUIRED_COLUMNS = [
+    "duration", "protocol_type", "service", "flag", "src_bytes",
+    "dst_bytes", "land", "wrong_fragment", "urgent", "hot", 
+    "num_failed_logins", "logged_in", "num_compromised", "root_shell",
+    "su_attempted", "num_root", "num_file_creations", "num_shells",
+    "num_access_files", "num_outbound_cmds", "is_host_login",
+    "is_guest_login", "count", "srv_count", "serror_rate",
+    "srv_serror_rate", "rerror_rate", "srv_rerror_rate",
+    "same_srv_rate", "diff_srv_rate", "srv_diff_host_rate",
+    "dst_host_count", "dst_host_srv_count", "dst_host_same_srv_rate",
+    "dst_host_diff_srv_rate", "dst_host_same_src_port_rate",
+    "dst_host_srv_diff_host_rate", "dst_host_serror_rate",
+    "dst_host_srv_serror_rate", "dst_host_rerror_rate",
+    "dst_host_srv_rerror_rate"
+]
 
 def preprocess_data(df):
     try:
@@ -137,8 +153,6 @@ def load_models():
         st.error(f"Error loading models: {str(e)}")
         return None
 
-# ... rest of your code remains the same ...
-
 def make_predictions(X, models):
     results = {}
     
@@ -221,6 +235,7 @@ def main():
                 
         except Exception as e:
             st.error(f"Error processing file: {str(e)}")
+            st.exception(e)
 
 if __name__ == "__main__":
     main()
