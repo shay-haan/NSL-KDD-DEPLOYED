@@ -71,16 +71,55 @@ def preprocess_data(df):
     # Categorical columns
     categorical_columns = ['protocol_type', 'service', 'flag']
     
+    # Define the expected categories for each categorical column
+    # These should match what you used during training
+    expected_categories = {
+        'protocol_type': ['tcp', 'udp', 'icmp'],
+        'service': [
+            'http', 'private', 'domain_u', 'smtp', 'ftp_data', 'eco_i', 'other', 
+            'auth', 'finger', 'domain', 'telnet', 'ecr_i', 'ftp', 'ssh', 'time', 
+            'whois', 'mtp', 'gopher', 'remote_job', 'rje', 'ctf', 'daytime', 
+            'systat', 'netbios_ns', 'pop_3', 'nntp', 'netbios_dgm', 'urp_i', 
+            'pm_dump', 'tftp_u', 'uucp', 'netbios_ssn', 'tim_i', 'ssh_i', 
+            'iso_tsap', 'echo', 'discard', 'printer', 'efs', 'courier', 'uucp_path',
+            'http_443', 'sunrpc', 'shell', 'sql_net', 'link', 'hostnames', 
+            'csnet_ns', 'pop_2', 'supdup', 'imap4', 'IRC', 'ntp_u', 'bgp', 
+            'exec', 'login', 'vmnet', 'Z39_50', 'name', 'ldap', 'http_8001', 
+            'klogin', 'kshell', 'aol', 'nnsp', 'http_2784', 'harvest', 'red_i'
+        ],
+        'flag': ['SF', 'S0', 'REJ', 'RSTO', 'RSTR', 'S1', 'RSTOS0', 'S2', 'S3', 'OTH', 'SH']
+    }
+
     # Get categorical values
     df_categorical_values = df[categorical_columns]
     
-    # Label Encoding
-    df_categorical_values_enc = df_categorical_values.apply(LabelEncoder().fit_transform)
+    # Label Encoding with fixed categories
+    label_encoders = {}
+    df_categorical_values_enc = pd.DataFrame()
     
-    # One-Hot Encoding
-    # Use sparse_output=False instead of sparse=False
-    enc = OneHotEncoder(categories='auto', sparse_output=False)
-    df_categorical_values_encenc = enc.fit_transform(df_categorical_values_enc)
+    for column in categorical_columns:
+        le = LabelEncoder()
+        # Fit with expected categories
+        le.fit(expected_categories[column])
+        
+        # Transform while handling unknown categories
+        try:
+            df_categorical_values_enc[column] = le.transform(df_categorical_values[column])
+        except ValueError as e:
+            unknown_categories = set(df_categorical_values[column]) - set(expected_categories[column])
+            st.error(f"Unknown categories in {column}: {unknown_categories}")
+            return None
+    
+    # One-Hot Encoding with fixed categories
+    enc = OneHotEncoder(categories=[expected_categories[col] for col in categorical_columns],
+                       sparse_output=False,
+                       handle_unknown='error')
+    
+    try:
+        df_categorical_values_encenc = enc.fit_transform(df_categorical_values_enc)
+    except ValueError as e:
+        st.error(f"Error in one-hot encoding: {str(e)}")
+        return None
     
     # Get numeric columns
     numeric_columns = [col for col in REQUIRED_COLUMNS if col not in categorical_columns]
@@ -88,6 +127,8 @@ def preprocess_data(df):
     
     # Combine numeric and categorical features
     X = np.hstack((df_numeric_values, df_categorical_values_encenc))
+    
+    st.write(f"Feature vector shape: {X.shape}")  # Debug information
     
     return X
 
