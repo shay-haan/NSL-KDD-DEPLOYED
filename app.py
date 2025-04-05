@@ -143,6 +143,31 @@ def preprocess_data(df):
         st.exception(e)
         return None
 
+
+# Add these debug functions
+def check_model_input_shape(X, models):
+    st.write("\nModel Input Shape Verification:")
+    st.write(f"Current input shape: {X.shape}")
+    for model_type in models:
+        for attack_type, model in models[model_type].items():
+            try:
+                n_features = model.n_features_in_ if hasattr(model, 'n_features_in_') else model.feature_importances_.shape[0]
+                st.write(f"{model_type} - {attack_type} model expects {n_features} features")
+            except Exception as e:
+                st.write(f"Couldn't get feature count for {model_type} - {attack_type}: {str(e)}")
+
+def verify_feature_alignment(X, df):
+    st.write("\nFeature Alignment Verification:")
+    categorical_columns = ['protocol_type', 'service', 'flag']
+    st.write(f"Original categorical values:")
+    for col in categorical_columns:
+        st.write(f"{col} unique values: {sorted(df[col].unique())}")
+    
+    # Print first few samples with their predicted probabilities
+    st.write("\nFirst few samples feature values:")
+    st.write(pd.DataFrame(X[:5], columns=[f"Feature_{i}" for i in range(X.shape[1])]))
+
+
 def load_models():
     try:
         models = {
@@ -168,77 +193,66 @@ def make_predictions(X, models):
     results = {}
     ensemble_results = {'DoS': [], 'Probe': [], 'R2L': [], 'U2R': []}
     
+    # Add debug information
+    check_model_input_shape(X, models)
+    
     # Make predictions for each model type
     for model_type in ['xgboost', 'logistic']:
         results[model_type] = {}
         for attack_type in ['DoS', 'Probe', 'R2L', 'U2R']:
             try:
+                # Add probability predictions
+                if hasattr(models[model_type][attack_type], 'predict_proba'):
+                    probs = models[model_type][attack_type].predict_proba(X)
+                    st.write(f"\n{model_type} - {attack_type} prediction probabilities (first 5 samples):")
+                    st.write(pd.DataFrame(probs[:5], columns=['Normal', 'Attack']))
+                
                 predictions = models[model_type][attack_type].predict(X)
                 attack_count = np.sum(predictions == 1)
                 attack_percentage = (attack_count / len(predictions)) * 100
+                
+                # Print prediction distribution
+                st.write(f"\n{model_type} - {attack_type} prediction distribution:")
+                st.write(pd.Series(predictions).value_counts())
+                
                 results[model_type][attack_type] = {
                     'count': int(attack_count),
                     'percentage': float(attack_percentage),
                     'predictions': predictions
                 }
-                # Store predictions for ensemble
                 ensemble_results[attack_type].append(predictions)
             except Exception as e:
                 st.error(f"Error in {model_type} model for {attack_type}: {str(e)}")
+                st.exception(e)
                 return None
     
-    # Calculate ensemble results (majority voting)
+    # Calculate ensemble results with more detailed voting
     results['ensemble'] = {}
     for attack_type in ['DoS', 'Probe', 'R2L', 'U2R']:
-        # Stack predictions from all models
-        stacked_predictions = np.stack(ensemble_results[attack_type])
-        # Take majority vote (mean > 0.5 means majority predicted 1)
-        ensemble_pred = (np.mean(stacked_predictions, axis=0) > 0.5).astype(int)
-        attack_count = np.sum(ensemble_pred == 1)
-        attack_percentage = (attack_count / len(ensemble_pred)) * 100
-        results['ensemble'][attack_type] = {
-            'count': int(attack_count),
-            'percentage': float(attack_percentage),
-            'predictions': ensemble_pred
-        }
+        try:
+            # Stack predictions from all models
+            stacked_predictions = np.stack(ensemble_results[attack_type])
+            
+            # Show voting distribution
+            st.write(f"\nEnsemble voting distribution for {attack_type}:")
+            vote_counts = np.sum(stacked_predictions, axis=0)
+            st.write(pd.Series(vote_counts).value_counts())
+            
+            # Take majority vote (mean > 0.5 means majority predicted 1)
+            ensemble_pred = (np.mean(stacked_predictions, axis=0) > 0.5).astype(int)
+            attack_count = np.sum(ensemble_pred == 1)
+            attack_percentage = (attack_count / len(ensemble_pred)) * 100
+            results['ensemble'][attack_type] = {
+                'count': int(attack_count),
+                'percentage': float(attack_percentage),
+                'predictions': ensemble_pred
+            }
+        except Exception as e:
+            st.error(f"Error in ensemble for {attack_type}: {str(e)}")
+            st.exception(e)
+            return None
     
     return results
-
-def display_results(results, df):
-    st.write("### Detection Results")
-    
-    # Create tabs for different model types
-    tabs = st.tabs(["XGBoost", "Logistic Regression", "Ensemble"])
-    
-    for tab, model_type in zip(tabs, ['xgboost', 'logistic', 'ensemble']):
-        with tab:
-            st.write(f"#### {model_type.upper()} Model Results")
-            
-            cols = st.columns(4)
-            for col, (attack_type, result) in zip(cols, results[model_type].items()):
-                with col:
-                    st.metric(
-                        label=f"{attack_type} Attacks",
-                        value=f"{result['count']}",
-                        delta=f"{result['percentage']:.2f}%"
-                    )
-            
-            # Create detailed results DataFrame
-            detailed_results = df.copy()
-            for attack_type, result in results[model_type].items():
-                detailed_results[f'{attack_type}_prediction'] = result['predictions']
-            
-            st.write("### Detailed Results")
-            st.dataframe(detailed_results)
-            
-            # Download button for results
-            csv = detailed_results.to_csv(index=False)
-            st.download_button(
-                label=f"Download {model_type.upper()} results as CSV",
-                data=csv,
-                file_name=f'{model_type}_detection_results.csv',
-                mime='text/csv'
-            )
 
 def main():
     st.title('Network Intrusion Detection System')
@@ -255,10 +269,22 @@ def main():
             st.write("### Dataset Preview")
             st.write(df.head())
             
+            # Show data statistics
+            st.write("### Dataset Statistics")
+            st.write(f"Total samples: {len(df)}")
+            st.write("\nValue counts for categorical features:")
+            for col in ['protocol_type', 'service', 'flag']:
+                if col in df.columns:
+                    st.write(f"\n{col}:")
+                    st.write(df[col].value_counts())
+            
             # Preprocess data
             X = preprocess_data(df)
             
             if X is not None:
+                # Verify feature alignment
+                verify_feature_alignment(X, df)
+                
                 # Load models
                 models = load_models()
                 
@@ -273,6 +299,3 @@ def main():
         except Exception as e:
             st.error(f"Error processing file: {str(e)}")
             st.exception(e)
-
-if __name__ == "__main__":
-    main()
