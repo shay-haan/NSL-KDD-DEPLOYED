@@ -5,7 +5,7 @@ from sklearn.preprocessing import LabelEncoder, OneHotEncoder
 import xgboost as xgb
 from sklearn.linear_model import LogisticRegression
 from sklearn.ensemble import StackingClassifier
-import pickle
+import pickle  # Use built-in pickle instead of pickle5
 import os
 import io
 
@@ -15,32 +15,35 @@ st.set_page_config(
     page_icon="🛡️",
     layout="wide"
 )
-st.write('Upload your test dataset to detect DoS, Probe, R2L, and U2R attacks')
 
 # Load the trained models
 @st.cache_resource
 def load_models():
-    models = {
-        'xgboost': {
-            'DoS': pickle.load(open('models/xgb_DoS.pkl', 'rb')),
-            'Probe': pickle.load(open('models/xgb_Probe.pkl', 'rb')),
-            'R2L': pickle.load(open('models/xgb_R2L.pkl', 'rb')),
-            'U2R': pickle.load(open('models/xgb_U2R.pkl', 'rb'))
-        },
-        'logistic': {
-            'DoS': pickle.load(open('models/lr_DoS.pkl', 'rb')),
-            'Probe': pickle.load(open('models/lr_Probe.pkl', 'rb')),
-            'R2L': pickle.load(open('models/lr_R2L.pkl', 'rb')),
-            'U2R': pickle.load(open('models/lr_U2R.pkl', 'rb'))
-        },
-        'ensemble': {
-            'DoS': pickle.load(open('models/ensemble_DoS.pkl', 'rb')),
-            'Probe': pickle.load(open('models/ensemble_Probe.pkl', 'rb')),
-            'R2L': pickle.load(open('models/ensemble_R2L.pkl', 'rb')),
-            'U2R': pickle.load(open('models/ensemble_U2R.pkl', 'rb'))
+    try:
+        models = {
+            'xgboost': {
+                'DoS': pickle.load(open('models/xgb_DoS.pkl', 'rb')),
+                'Probe': pickle.load(open('models/xgb_Probe.pkl', 'rb')),
+                'R2L': pickle.load(open('models/xgb_R2L.pkl', 'rb')),
+                'U2R': pickle.load(open('models/xgb_U2R.pkl', 'rb'))
+            },
+            'logistic': {
+                'DoS': pickle.load(open('models/lr_DoS.pkl', 'rb')),
+                'Probe': pickle.load(open('models/lr_Probe.pkl', 'rb')),
+                'R2L': pickle.load(open('models/lr_R2L.pkl', 'rb')),
+                'U2R': pickle.load(open('models/lr_U2R.pkl', 'rb'))
+            },
+            'ensemble': {
+                'DoS': pickle.load(open('models/ensemble_DoS.pkl', 'rb')),
+                'Probe': pickle.load(open('models/ensemble_Probe.pkl', 'rb')),
+                'R2L': pickle.load(open('models/ensemble_R2L.pkl', 'rb')),
+                'U2R': pickle.load(open('models/ensemble_U2R.pkl', 'rb'))
+            }
         }
-    }
-    return models
+        return models
+    except Exception as e:
+        st.error(f"Error loading models: {str(e)}")
+        return None
 
 def preprocess_data(df):
     # Categorical columns
