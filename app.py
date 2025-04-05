@@ -6,9 +6,15 @@ import xgboost as xgb
 from sklearn.linear_model import LogisticRegression
 from sklearn.ensemble import StackingClassifier
 import pickle
+import os
 import io
 
-st.title('Network Intrusion Detection System')
+# Set page config
+st.set_page_config(
+    page_title="Network Intrusion Detection System",
+    page_icon="🛡️",
+    layout="wide"
+)
 st.write('Upload your test dataset to detect DoS, Probe, R2L, and U2R attacks')
 
 # Load the trained models
