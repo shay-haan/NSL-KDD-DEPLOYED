@@ -21,9 +21,10 @@ SERVICES = [
     'efs', 'courier', 'uucp', 'klogin', 'kshell', 'echo', 'discard', 'systat',
     'supdup', 'iso_tsap', 'hostnames', 'csnet_ns', 'pop_2', 'sunrpc', 'uucp_path',
     'netbios_ns', 'netbios_ssn', 'netbios_dgm', 'sql_net', 'vmnet', 'bgp', 'Z39_50',
-    'ldap', 'netstat', 'urh_i', 'X11', 'urp_i', 'pm_dump', 'tftp_u', 'tim_i', 
-    'red_i'
+    'ldap', 'netstat', 'urh_i', 'X11', 'urp_i', 'pm_dump', 'tftp_u', 'tim_i',
+    'red_i', 'http_8001', 'aol'  # Added 'aol' and 'http_8001'
 ]
+
 FLAGS = ['SF', 'S1', 'REJ', 'S2', 'S0', 'S3', 'RSTO', 'RSTR', 'RSTOS0', 'OTH', 'SH']
 
 # Define required columns
@@ -62,9 +63,9 @@ def preprocess_data(df):
         # Debug information before encoding
         st.write("Original data shape:", df.shape)
         st.write("Numeric columns:", len(numeric_columns))
-        st.write("Unique protocols:", df['protocol_type'].unique())
-        st.write("Unique services:", df['service'].unique())
-        st.write("Unique flags:", df['flag'].unique())
+        st.write("Unique protocols:", sorted(df['protocol_type'].unique()))
+        st.write("Unique services:", sorted(df['service'].unique()))
+        st.write("Unique flags:", sorted(df['flag'].unique()))
         
         # Create dummy variables
         protocol_dummies = pd.get_dummies(df['protocol_type'], prefix='protocol_type')
@@ -100,11 +101,6 @@ def preprocess_data(df):
         st.write("Service features:", service_dummies.shape[1])
         st.write("Flag features:", flag_dummies.shape[1])
         
-        # Keep the original categorical columns in numeric_data
-        numeric_data['protocol_type'] = df['protocol_type']
-        numeric_data['service'] = df['service']
-        numeric_data['flag'] = df['flag']
-        
         # Combine all features
         final_df = pd.concat([
             numeric_data,
@@ -121,16 +117,20 @@ def preprocess_data(df):
         
         # Verify feature count
         expected_features = (
-            len(numeric_columns) +  # Numeric features
-            3 +                    # Original categorical columns
-            len(PROTOCOL_TYPES) +  # Protocol dummy features
-            len(SERVICES) +        # Service dummy features
-            len(FLAGS)             # Flag dummy features
+            len(numeric_columns) +      # Numeric features
+            len(PROTOCOL_TYPES) +       # Protocol dummy features
+            len(SERVICES) +             # Service dummy features
+            len(FLAGS)                  # Flag dummy features
         )
         
         if X.shape[1] != 122:
             st.error(f"Expected 122 features, but got {X.shape[1]}")
-            st.write(f"Expected breakdown: {expected_features} features")
+            st.write(f"Expected breakdown:")
+            st.write(f"Numeric features: {len(numeric_columns)}")
+            st.write(f"Protocol features: {len(PROTOCOL_TYPES)}")
+            st.write(f"Service features: {len(SERVICES)}")
+            st.write(f"Flag features: {len(FLAGS)}")
+            st.write(f"Total expected: {expected_features}")
             st.write("Final columns:", final_df.columns.tolist())
             return None
             
@@ -139,7 +139,6 @@ def preprocess_data(df):
     except Exception as e:
         st.error(f"Error in preprocessing: {str(e)}")
         st.exception(e)  # This will show the full traceback
-        return None
         return None
 
 def load_models():
