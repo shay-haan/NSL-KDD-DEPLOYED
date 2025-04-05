@@ -33,17 +33,39 @@ REQUIRED_COLUMNS = [
     "dst_host_srv_rerror_rate"
 ]
 
+@st.cache_resource
+def load_models():
+    try:
+        models = {
+            'xgboost': {
+                'DoS': pickle.load(open('models/xgb_DoS.pkl', 'rb')),
+                'Probe': pickle.load(open('models/xgb_Probe.pkl', 'rb')),
+                'R2L': pickle.load(open('models/xgb_R2L.pkl', 'rb')),
+                'U2R': pickle.load(open('models/xgb_U2R.pkl', 'rb'))
+            },
+            'logistic': {
+                'DoS': pickle.load(open('models/lr_DoS.pkl', 'rb')),
+                'Probe': pickle.load(open('models/lr_Probe.pkl', 'rb')),
+                'R2L': pickle.load(open('models/lr_R2L.pkl', 'rb')),
+                'U2R': pickle.load(open('models/lr_U2R.pkl', 'rb'))
+            },
+            'ensemble': {
+                'DoS': pickle.load(open('models/ensemble_DoS.pkl', 'rb')),
+                'Probe': pickle.load(open('models/ensemble_Probe.pkl', 'rb')),
+                'R2L': pickle.load(open('models/ensemble_R2L.pkl', 'rb')),
+                'U2R': pickle.load(open('models/ensemble_U2R.pkl', 'rb'))
+            }
+        }
+        return models
+    except Exception as e:
+        st.error(f"Error loading models: {str(e)}")
+        return None
+
 def preprocess_data(df):
     # Check if all required columns are present
     missing_cols = [col for col in REQUIRED_COLUMNS if col not in df.columns]
     if missing_cols:
-        st.error(f"The following required columns are missing from your dataset: {', '.join(missing_cols)}")
-        st.write("Your dataset columns:", ", ".join(df.columns))
-        st.write("""
-        Please ensure your dataset has all required columns. 
-        The expected format is the NSL-KDD dataset format with the following columns:
-        """)
-        st.write(", ".join(REQUIRED_COLUMNS))
+        st.error(f"Missing columns: {', '.join(missing_cols)}")
         return None
 
     # Categorical columns
@@ -56,62 +78,110 @@ def preprocess_data(df):
     df_categorical_values_enc = df_categorical_values.apply(LabelEncoder().fit_transform)
     
     # One-Hot Encoding
-    enc = OneHotEncoder(categories='auto')
+    enc = OneHotEncoder(categories='auto', sparse=False)
     df_categorical_values_encenc = enc.fit_transform(df_categorical_values_enc)
     
     # Get numeric columns
     numeric_columns = [col for col in REQUIRED_COLUMNS if col not in categorical_columns]
-    df_numeric_values = df[numeric_columns]
+    df_numeric_values = df[numeric_columns].astype(float)
     
     # Combine numeric and categorical features
-    X = np.hstack((df_numeric_values, df_categorical_values_encenc.toarray()))
+    X = np.hstack((df_numeric_values, df_categorical_values_encenc))
     
     return X
+
+def make_predictions(X, models):
+    results = {}
+    
+    for model_type in ['xgboost', 'logistic', 'ensemble']:
+        results[model_type] = {}
+        for attack_type in ['DoS', 'Probe', 'R2L', 'U2R']:
+            try:
+                predictions = models[model_type][attack_type].predict(X)
+                attack_count = np.sum(predictions == 1)
+                attack_percentage = (attack_count / len(predictions)) * 100
+                results[model_type][attack_type] = {
+                    'count': int(attack_count),
+                    'percentage': float(attack_percentage),
+                    'predictions': predictions
+                }
+            except Exception as e:
+                st.error(f"Error in {model_type} model for {attack_type}: {str(e)}")
+                return None
+    
+    return results
+
+def display_results(results, df):
+    if results is None:
+        return
+
+    st.write("## Detection Results")
+    
+    # Create tabs for different models
+    tabs = st.tabs(['XGBoost', 'Logistic Regression', 'Ensemble'])
+    
+    for tab, model_type in zip(tabs, ['xgboost', 'logistic', 'ensemble']):
+        with tab:
+            st.write(f"### {model_type.upper()} Model Results")
+            
+            # Create columns for different attack types
+            cols = st.columns(4)
+            
+            for col, attack_type in zip(cols, ['DoS', 'Probe', 'R2L', 'U2R']):
+                with col:
+                    result = results[model_type][attack_type]
+                    st.metric(
+                        label=f"{attack_type} Attacks",
+                        value=f"{result['count']}",
+                        delta=f"{result['percentage']:.2f}%"
+                    )
+            
+            # Create detailed results DataFrame
+            results_df = pd.DataFrame({
+                'DoS': results[model_type]['DoS']['predictions'],
+                'Probe': results[model_type]['Probe']['predictions'],
+                'R2L': results[model_type]['R2L']['predictions'],
+                'U2R': results[model_type]['U2R']['predictions']
+            })
+            
+            # Combine with original features
+            detailed_results = pd.concat([df, results_df], axis=1)
+            
+            st.write("### Detailed Results")
+            st.dataframe(detailed_results)
+            
+            # Download button for results
+            csv = detailed_results.to_csv(index=False)
+            st.download_button(
+                label=f"Download {model_type.upper()} results as CSV",
+                data=csv,
+                file_name=f'{model_type}_detection_results.csv',
+                mime='text/csv'
+            )
 
 def main():
     st.title('Network Intrusion Detection System')
     st.write('Upload your test dataset to detect DoS, Probe, R2L, and U2R attacks')
     
-    # Add file format instructions
-    st.write("""
-    ### Required File Format
-    Your CSV file should contain the following columns:
-    """)
-    st.write(", ".join(REQUIRED_COLUMNS))
-    
-    # Example dataset download
-    st.write("""
-    ### Need an example?
-    Download a sample dataset in the correct format:
-    """)
-    
-    # Create a small sample dataset
-    sample_data = pd.DataFrame(columns=REQUIRED_COLUMNS)
-    sample_data.loc[0] = [0, 'tcp', 'http', 'SF', 181, 5450, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 8, 8, 0, 0, 0, 0, 1, 0, 0, 9, 9, 1, 0, 0.11, 0, 0, 0, 0, 0]
-    
-    # Convert sample data to CSV
-    csv = sample_data.to_csv(index=False)
-    st.download_button(
-        label="Download Sample Dataset",
-        data=csv,
-        file_name="sample_dataset.csv",
-        mime="text/csv"
-    )
+    # Load models
+    models = load_models()
+    if models is None:
+        st.error("Failed to load models. Please check if model files exist in the 'models' directory.")
+        return
     
     uploaded_file = st.file_uploader("Choose a CSV file", type="csv")
     
     if uploaded_file is not None:
         try:
             df = pd.read_csv(uploaded_file)
-            st.write("Dataset Preview:")
+            st.write("### Dataset Preview")
             st.write(df.head())
             
             X = preprocess_data(df)
-            if X is None:
-                return
-            
-            # Load models and continue with predictions...
-            # [Rest of your prediction code here]
+            if X is not None:
+                with st.spinner('Making predictions...'):
+                    results = make_predictions(X, models)
+                    display_results(results, df)
             
         except Exception as e:
             st.error(f"Error processing file: {str(e)}")
