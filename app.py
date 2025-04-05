@@ -54,46 +54,68 @@ def preprocess_data(df):
         # Get numeric columns
         numeric_columns = [col for col in REQUIRED_COLUMNS if col not in ['protocol_type', 'service', 'flag']]
         
-        # Create one-hot encodings for categorical columns
-        protocol_dummies = pd.get_dummies(df['protocol_type'], prefix='protocol_type')
-        service_dummies = pd.get_dummies(df['service'], prefix='service')
-        flag_dummies = pd.get_dummies(df['flag'], prefix='flag')
-        
-        # Print debugging information
-        st.write("Number of numeric features:", len(numeric_columns))
-        st.write("Number of protocol types:", len(PROTOCOL_TYPES))
-        st.write("Number of services:", len(SERVICES))
-        st.write("Number of flags:", len(FLAGS))
-        
-        st.write("\nActual feature counts in data:")
-        st.write("Protocol dummy columns:", protocol_dummies.shape[1])
-        st.write("Service dummy columns:", service_dummies.shape[1])
-        st.write("Flag dummy columns:", flag_dummies.shape[1])
         # Convert numeric columns to float
         numeric_data = df[numeric_columns].astype(float)
+        
+        # Create dummy variables with a complete set of categories
+        protocol_dummies = pd.get_dummies(df['protocol_type'], prefix='protocol_type', dummy_na=False)
+        service_dummies = pd.get_dummies(df['service'], prefix='service', dummy_na=False)
+        flag_dummies = pd.get_dummies(df['flag'], prefix='flag', dummy_na=False)
+        
+        # Add missing dummy columns with zeros
+        for protocol in PROTOCOL_TYPES:
+            col_name = f'protocol_type_{protocol}'
+            if col_name not in protocol_dummies.columns:
+                protocol_dummies[col_name] = 0
+                
+        for service in SERVICES:
+            col_name = f'service_{service}'
+            if col_name not in service_dummies.columns:
+                service_dummies[col_name] = 0
+                
+        for flag in FLAGS:
+            col_name = f'flag_{flag}'
+            if col_name not in flag_dummies.columns:
+                flag_dummies[col_name] = 0
+        
+        # Sort columns to ensure consistent order
+        protocol_dummies = protocol_dummies[sorted([f'protocol_type_{p}' for p in PROTOCOL_TYPES])]
+        service_dummies = service_dummies[sorted([f'service_{s}' for s in SERVICES])]
+        flag_dummies = flag_dummies[sorted([f'flag_{f}' for f in FLAGS])]
         
         # Combine all features
         final_df = pd.concat([
             numeric_data,
-            protocol_dummies[sorted([f'protocol_type_{p}' for p in PROTOCOL_TYPES])],
-            service_dummies[sorted([f'service_{s}' for s in SERVICES])],
-            flag_dummies[sorted([f'flag_{f}' for f in FLAGS])]
+            protocol_dummies,
+            service_dummies,
+            flag_dummies
         ], axis=1)
         
         # Convert to numpy array
         X = final_df.values
         
-        st.write(f"Feature vector shape: {X.shape}")
+        # Debug information
+        st.write("Feature vector shape:", X.shape)
+        st.write("Number of numeric features:", len(numeric_columns))
+        st.write("Number of protocol features:", len(PROTOCOL_TYPES))
+        st.write("Number of service features:", len(SERVICES))
+        st.write("Number of flag features:", len(FLAGS))
         
         # Verify we have 122 features
         if X.shape[1] != 122:
             st.error(f"Expected 122 features, but got {X.shape[1]}")
+            st.write("Missing columns:", set(REQUIRED_COLUMNS) - set(final_df.columns))
             return None
             
         return X
 
     except Exception as e:
         st.error(f"Error in preprocessing: {str(e)}")
+        st.write("Debug info:")
+        st.write("Available columns:", df.columns.tolist())
+        st.write("Unique protocols:", df['protocol_type'].unique())
+        st.write("Unique services:", df['service'].unique())
+        st.write("Unique flags:", df['flag'].unique())
         return None
 
 def load_models():
