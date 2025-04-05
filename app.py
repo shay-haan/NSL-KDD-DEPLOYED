@@ -2,10 +2,7 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 from sklearn.preprocessing import LabelEncoder, OneHotEncoder
-import xgboost as xgb
-from sklearn.linear_model import LogisticRegression
 import pickle
-import os
 
 # Set page config
 st.set_page_config(
@@ -13,6 +10,21 @@ st.set_page_config(
     page_icon="🛡️",
     layout="wide"
 )
+
+# Define the exact categories used in NSL-KDD dataset
+PROTOCOL_TYPES = ['tcp', 'udp', 'icmp']
+SERVICES = [
+    'http', 'smtp', 'finger', 'domain_u', 'auth', 'telnet', 'ftp', 'eco_i', 'ntp_u',
+    'ecr_i', 'other', 'private', 'pop_3', 'ftp_data', 'rje', 'time', 'mtp', 'link',
+    'remote_job', 'gopher', 'ssh', 'name', 'whois', 'domain', 'login', 'imap4',
+    'daytime', 'ctf', 'nntp', 'shell', 'IRC', 'nnsp', 'http_443', 'exec', 'printer',
+    'efs', 'courier', 'uucp', 'klogin', 'kshell', 'echo', 'discard', 'systat',
+    'supdup', 'iso_tsap', 'hostnames', 'csnet_ns', 'pop_2', 'sunrpc', 'uucp_path',
+    'netbios_ns', 'netbios_ssn', 'netbios_dgm', 'sql_net', 'vmnet', 'bgp', 'Z39_50',
+    'ldap', 'netstat', 'urh_i', 'X11', 'urp_i', 'pm_dump', 'tftp_u', 'tim_i', 
+    'red_i'
+]
+FLAGS = ['SF', 'S1', 'REJ', 'S2', 'S0', 'S3', 'RSTO', 'RSTR', 'RSTOS0', 'OTH', 'SH']
 
 # Define required columns
 REQUIRED_COLUMNS = [
@@ -39,39 +51,48 @@ def preprocess_data(df):
             st.error(f"Missing columns: {', '.join(missing_cols)}")
             return None
 
-        # Categorical columns
-        categorical_columns = ['protocol_type', 'service', 'flag']
-        
         # Get numeric columns
-        numeric_columns = [col for col in REQUIRED_COLUMNS if col not in categorical_columns]
+        numeric_columns = [col for col in REQUIRED_COLUMNS if col not in ['protocol_type', 'service', 'flag']]
+        
+        # Create one-hot encodings for categorical columns
+        protocol_dummies = pd.get_dummies(df['protocol_type'], prefix='protocol_type')
+        service_dummies = pd.get_dummies(df['service'], prefix='service')
+        flag_dummies = pd.get_dummies(df['flag'], prefix='flag')
+        
+        # Ensure all expected categories are present
+        for protocol in PROTOCOL_TYPES:
+            if f'protocol_type_{protocol}' not in protocol_dummies.columns:
+                protocol_dummies[f'protocol_type_{protocol}'] = 0
+                
+        for service in SERVICES:
+            if f'service_{service}' not in service_dummies.columns:
+                service_dummies[f'service_{service}'] = 0
+                
+        for flag in FLAGS:
+            if f'flag_{flag}' not in flag_dummies.columns:
+                flag_dummies[f'flag_{flag}'] = 0
         
         # Convert numeric columns to float
-        df[numeric_columns] = df[numeric_columns].astype(float)
+        numeric_data = df[numeric_columns].astype(float)
         
-        # Create separate DataFrame for categorical data
-        df_categorical = df[categorical_columns].copy()
+        # Combine all features
+        final_df = pd.concat([
+            numeric_data,
+            protocol_dummies[sorted([f'protocol_type_{p}' for p in PROTOCOL_TYPES])],
+            service_dummies[sorted([f'service_{s}' for s in SERVICES])],
+            flag_dummies[sorted([f'flag_{f}' for f in FLAGS])]
+        ], axis=1)
         
-        # Initialize label encoders dictionary
-        label_encoders = {}
-        
-        # Apply Label Encoding to each categorical column
-        for column in categorical_columns:
-            label_encoders[column] = LabelEncoder()
-            df_categorical[column] = label_encoders[column].fit_transform(df_categorical[column])
-        
-        # Convert to numpy array for OneHotEncoder
-        categorical_values = df_categorical.values
-        
-        # Apply OneHotEncoder
-        onehot_encoder = OneHotEncoder(sparse_output=False)
-        categorical_encoded = onehot_encoder.fit_transform(categorical_values)
-        
-        # Combine numeric and encoded categorical features
-        numeric_values = df[numeric_columns].values
-        X = np.hstack((numeric_values, categorical_encoded))
+        # Convert to numpy array
+        X = final_df.values
         
         st.write(f"Feature vector shape: {X.shape}")
         
+        # Verify we have 122 features
+        if X.shape[1] != 122:
+            st.error(f"Expected 122 features, but got {X.shape[1]}")
+            return None
+            
         return X
 
     except Exception as e:
@@ -92,6 +113,8 @@ def load_models():
     except Exception as e:
         st.error(f"Error loading models: {str(e)}")
         return None
+
+# ... rest of your code remains the same ...
 
 def make_predictions(X, models):
     results = {}
