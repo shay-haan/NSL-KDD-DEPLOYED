@@ -43,6 +43,7 @@ REQUIRED_COLUMNS = [
     "dst_host_srv_rerror_rate"
 ]
 
+
 def preprocess_data(df):
     try:
         # Check if all required columns are present
@@ -51,37 +52,58 @@ def preprocess_data(df):
             st.error(f"Missing columns: {', '.join(missing_cols)}")
             return None
 
-        # Get numeric columns
-        numeric_columns = [col for col in REQUIRED_COLUMNS if col not in ['protocol_type', 'service', 'flag']]
+        # Get numeric columns (excluding categorical columns)
+        categorical_columns = ['protocol_type', 'service', 'flag']
+        numeric_columns = [col for col in REQUIRED_COLUMNS if col not in categorical_columns]
         
         # Convert numeric columns to float
         numeric_data = df[numeric_columns].astype(float)
         
-        # Create dummy variables with a complete set of categories
-        protocol_dummies = pd.get_dummies(df['protocol_type'], prefix='protocol_type', dummy_na=False)
-        service_dummies = pd.get_dummies(df['service'], prefix='service', dummy_na=False)
-        flag_dummies = pd.get_dummies(df['flag'], prefix='flag', dummy_na=False)
+        # Debug information before encoding
+        st.write("Original data shape:", df.shape)
+        st.write("Numeric columns:", len(numeric_columns))
+        st.write("Unique protocols:", df['protocol_type'].unique())
+        st.write("Unique services:", df['service'].unique())
+        st.write("Unique flags:", df['flag'].unique())
         
-        # Add missing dummy columns with zeros
-        for protocol in PROTOCOL_TYPES:
-            col_name = f'protocol_type_{protocol}'
-            if col_name not in protocol_dummies.columns:
-                protocol_dummies[col_name] = 0
-                
-        for service in SERVICES:
-            col_name = f'service_{service}'
-            if col_name not in service_dummies.columns:
-                service_dummies[col_name] = 0
-                
-        for flag in FLAGS:
-            col_name = f'flag_{flag}'
-            if col_name not in flag_dummies.columns:
-                flag_dummies[col_name] = 0
+        # Create dummy variables
+        protocol_dummies = pd.get_dummies(df['protocol_type'], prefix='protocol_type')
+        service_dummies = pd.get_dummies(df['service'], prefix='service')
+        flag_dummies = pd.get_dummies(df['flag'], prefix='flag')
         
-        # Sort columns to ensure consistent order
-        protocol_dummies = protocol_dummies[sorted([f'protocol_type_{p}' for p in PROTOCOL_TYPES])]
-        service_dummies = service_dummies[sorted([f'service_{s}' for s in SERVICES])]
-        flag_dummies = flag_dummies[sorted([f'flag_{f}' for f in FLAGS])]
+        # Ensure all expected categories are present
+        expected_protocols = [f'protocol_type_{p}' for p in PROTOCOL_TYPES]
+        expected_services = [f'service_{s}' for s in SERVICES]
+        expected_flags = [f'flag_{f}' for f in FLAGS]
+        
+        # Add missing dummy columns
+        for col in expected_protocols:
+            if col not in protocol_dummies.columns:
+                protocol_dummies[col] = 0
+                
+        for col in expected_services:
+            if col not in service_dummies.columns:
+                service_dummies[col] = 0
+                
+        for col in expected_flags:
+            if col not in flag_dummies.columns:
+                flag_dummies[col] = 0
+        
+        # Sort the dummy columns
+        protocol_dummies = protocol_dummies[sorted(expected_protocols)]
+        service_dummies = service_dummies[sorted(expected_services)]
+        flag_dummies = flag_dummies[sorted(expected_flags)]
+        
+        # Debug information after encoding
+        st.write("\nEncoded features:")
+        st.write("Protocol features:", protocol_dummies.shape[1])
+        st.write("Service features:", service_dummies.shape[1])
+        st.write("Flag features:", flag_dummies.shape[1])
+        
+        # Keep the original categorical columns in numeric_data
+        numeric_data['protocol_type'] = df['protocol_type']
+        numeric_data['service'] = df['service']
+        numeric_data['flag'] = df['flag']
         
         # Combine all features
         final_df = pd.concat([
@@ -94,28 +116,30 @@ def preprocess_data(df):
         # Convert to numpy array
         X = final_df.values
         
-        # Debug information
-        st.write("Feature vector shape:", X.shape)
-        st.write("Number of numeric features:", len(numeric_columns))
-        st.write("Number of protocol features:", len(PROTOCOL_TYPES))
-        st.write("Number of service features:", len(SERVICES))
-        st.write("Number of flag features:", len(FLAGS))
+        st.write("\nFinal feature vector shape:", X.shape)
+        st.write("Total features:", X.shape[1])
         
-        # Verify we have 122 features
+        # Verify feature count
+        expected_features = (
+            len(numeric_columns) +  # Numeric features
+            3 +                    # Original categorical columns
+            len(PROTOCOL_TYPES) +  # Protocol dummy features
+            len(SERVICES) +        # Service dummy features
+            len(FLAGS)             # Flag dummy features
+        )
+        
         if X.shape[1] != 122:
             st.error(f"Expected 122 features, but got {X.shape[1]}")
-            st.write("Missing columns:", set(REQUIRED_COLUMNS) - set(final_df.columns))
+            st.write(f"Expected breakdown: {expected_features} features")
+            st.write("Final columns:", final_df.columns.tolist())
             return None
             
         return X
 
     except Exception as e:
         st.error(f"Error in preprocessing: {str(e)}")
-        st.write("Debug info:")
-        st.write("Available columns:", df.columns.tolist())
-        st.write("Unique protocols:", df['protocol_type'].unique())
-        st.write("Unique services:", df['service'].unique())
-        st.write("Unique flags:", df['flag'].unique())
+        st.exception(e)  # This will show the full traceback
+        return None
         return None
 
 def load_models():
