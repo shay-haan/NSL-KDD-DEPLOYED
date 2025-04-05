@@ -12,9 +12,9 @@ st.set_page_config(
     layout="wide"
 )
 
-# Display current time and user
-st.write(f"Current Date and Time (UTC): {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')}")
-st.write(f"Current User: shay-haan")
+# Display current time and user with exact format
+st.write(f"Current Date and Time (UTC - YYYY-MM-DD HH:MM:SS formatted): 2025-04-05 11:37:16")
+st.write(f"Current User's Login: shay-haan")
 
 # Define the exact categories used in NSL-KDD dataset
 PROTOCOL_TYPES = ['tcp', 'udp', 'icmp']
@@ -47,6 +47,27 @@ REQUIRED_COLUMNS = [
     "dst_host_srv_serror_rate", "dst_host_rerror_rate",
     "dst_host_srv_rerror_rate"
 ]
+
+def check_model_input_shape(X, models):
+    st.write("\nModel Input Shape Verification:")
+    st.write(f"Current input shape: {X.shape}")
+    for model_type in models:
+        for attack_type, model in models[model_type].items():
+            try:
+                n_features = model.n_features_in_ if hasattr(model, 'n_features_in_') else model.feature_importances_.shape[0]
+                st.write(f"{model_type} - {attack_type} model expects {n_features} features")
+            except Exception as e:
+                st.write(f"Couldn't get feature count for {model_type} - {attack_type}: {str(e)}")
+
+def verify_feature_alignment(X, df):
+    st.write("\nFeature Alignment Verification:")
+    categorical_columns = ['protocol_type', 'service', 'flag']
+    st.write(f"Original categorical values:")
+    for col in categorical_columns:
+        st.write(f"{col} unique values: {sorted(df[col].unique())}")
+    
+    st.write("\nFirst few samples feature values:")
+    st.write(pd.DataFrame(X[:5], columns=[f"Feature_{i}" for i in range(X.shape[1])]))
 
 def preprocess_data(df):
     try:
@@ -143,31 +164,6 @@ def preprocess_data(df):
         st.exception(e)
         return None
 
-
-# Add these debug functions
-def check_model_input_shape(X, models):
-    st.write("\nModel Input Shape Verification:")
-    st.write(f"Current input shape: {X.shape}")
-    for model_type in models:
-        for attack_type, model in models[model_type].items():
-            try:
-                n_features = model.n_features_in_ if hasattr(model, 'n_features_in_') else model.feature_importances_.shape[0]
-                st.write(f"{model_type} - {attack_type} model expects {n_features} features")
-            except Exception as e:
-                st.write(f"Couldn't get feature count for {model_type} - {attack_type}: {str(e)}")
-
-def verify_feature_alignment(X, df):
-    st.write("\nFeature Alignment Verification:")
-    categorical_columns = ['protocol_type', 'service', 'flag']
-    st.write(f"Original categorical values:")
-    for col in categorical_columns:
-        st.write(f"{col} unique values: {sorted(df[col].unique())}")
-    
-    # Print first few samples with their predicted probabilities
-    st.write("\nFirst few samples feature values:")
-    st.write(pd.DataFrame(X[:5], columns=[f"Feature_{i}" for i in range(X.shape[1])]))
-
-
 def load_models():
     try:
         models = {
@@ -254,6 +250,25 @@ def make_predictions(X, models):
     
     return results
 
+def display_results(results):
+    st.write("### Detection Results")
+    
+    # Create tabs for different model types
+    tabs = st.tabs(["XGBoost", "Logistic Regression", "Ensemble"])
+    
+    for tab, model_type in zip(tabs, ['xgboost', 'logistic', 'ensemble']):
+        with tab:
+            st.write(f"#### {model_type.upper()} Model Results")
+            
+            cols = st.columns(4)
+            for col, (attack_type, result) in zip(cols, results[model_type].items()):
+                with col:
+                    st.metric(
+                        label=f"{attack_type} Attacks",
+                        value=f"{result['count']}",
+                        delta=f"{result['percentage']:.2f}%"
+                    )
+
 def main():
     st.title('Network Intrusion Detection System')
     st.write('Upload your test dataset to detect network intrusions')
@@ -294,8 +309,11 @@ def main():
                         results = make_predictions(X, models)
                         
                         if results is not None:
-                            display_results(results, df)
+                            display_results(results)
                 
         except Exception as e:
             st.error(f"Error processing file: {str(e)}")
             st.exception(e)
+
+if __name__ == "__main__":
+    main()
