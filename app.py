@@ -78,7 +78,8 @@ def preprocess_data(df):
     df_categorical_values_enc = df_categorical_values.apply(LabelEncoder().fit_transform)
     
     # One-Hot Encoding
-    enc = OneHotEncoder(categories='auto', sparse=False)
+    # Use sparse_output=False instead of sparse=False
+    enc = OneHotEncoder(categories='auto', sparse_output=False)
     df_categorical_values_encenc = enc.fit_transform(df_categorical_values_enc)
     
     # Get numeric columns
