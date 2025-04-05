@@ -12,6 +12,7 @@ st.set_page_config(
 )
 
 # Define the exact categories used in NSL-KDD dataset
+# First, let's declare our categories exactly as they appear in your training data
 PROTOCOL_TYPES = ['tcp', 'udp', 'icmp']
 SERVICES = [
     'http', 'smtp', 'finger', 'domain_u', 'auth', 'telnet', 'ftp', 'eco_i', 'ntp_u',
@@ -22,28 +23,9 @@ SERVICES = [
     'supdup', 'iso_tsap', 'hostnames', 'csnet_ns', 'pop_2', 'sunrpc', 'uucp_path',
     'netbios_ns', 'netbios_ssn', 'netbios_dgm', 'sql_net', 'vmnet', 'bgp', 'Z39_50',
     'ldap', 'netstat', 'urh_i', 'X11', 'urp_i', 'pm_dump', 'tftp_u', 'tim_i',
-    'red_i', 'http_8001', 'aol'  # Added 'aol' and 'http_8001'
+    'red_i', 'http_8001', 'aol', 'harvest', 'http_2784'  # Added missing services
 ]
-
-FLAGS = ['SF', 'S1', 'REJ', 'S2', 'S0', 'S3', 'RSTO', 'RSTR', 'RSTOS0', 'OTH', 'SH']
-
-# Define required columns
-REQUIRED_COLUMNS = [
-    "duration", "protocol_type", "service", "flag", "src_bytes",
-    "dst_bytes", "land", "wrong_fragment", "urgent", "hot", 
-    "num_failed_logins", "logged_in", "num_compromised", "root_shell",
-    "su_attempted", "num_root", "num_file_creations", "num_shells",
-    "num_access_files", "num_outbound_cmds", "is_host_login",
-    "is_guest_login", "count", "srv_count", "serror_rate",
-    "srv_serror_rate", "rerror_rate", "srv_rerror_rate",
-    "same_srv_rate", "diff_srv_rate", "srv_diff_host_rate",
-    "dst_host_count", "dst_host_srv_count", "dst_host_same_srv_rate",
-    "dst_host_diff_srv_rate", "dst_host_same_src_port_rate",
-    "dst_host_srv_diff_host_rate", "dst_host_serror_rate",
-    "dst_host_srv_serror_rate", "dst_host_rerror_rate",
-    "dst_host_srv_rerror_rate"
-]
-
+FLAGS = ['SF', 'S0', 'REJ', 'RSTO', 'RSTR', 'S1', 'RSTOS0', 'S2', 'S3', 'OTH', 'SH']
 
 def preprocess_data(df):
     try:
@@ -67,33 +49,31 @@ def preprocess_data(df):
         st.write("Unique services:", sorted(df['service'].unique()))
         st.write("Unique flags:", sorted(df['flag'].unique()))
         
-        # Create dummy variables
+        # Create dummy variables with explicit handling of all categories
         protocol_dummies = pd.get_dummies(df['protocol_type'], prefix='protocol_type')
         service_dummies = pd.get_dummies(df['service'], prefix='service')
         flag_dummies = pd.get_dummies(df['flag'], prefix='flag')
         
-        # Ensure all expected categories are present
-        expected_protocols = [f'protocol_type_{p}' for p in PROTOCOL_TYPES]
-        expected_services = [f'service_{s}' for s in SERVICES]
-        expected_flags = [f'flag_{f}' for f in FLAGS]
-        
         # Add missing dummy columns
-        for col in expected_protocols:
-            if col not in protocol_dummies.columns:
-                protocol_dummies[col] = 0
+        for protocol in PROTOCOL_TYPES:
+            col_name = f'protocol_type_{protocol}'
+            if col_name not in protocol_dummies.columns:
+                protocol_dummies[col_name] = 0
                 
-        for col in expected_services:
-            if col not in service_dummies.columns:
-                service_dummies[col] = 0
+        for service in SERVICES:
+            col_name = f'service_{service}'
+            if col_name not in service_dummies.columns:
+                service_dummies[col_name] = 0
                 
-        for col in expected_flags:
-            if col not in flag_dummies.columns:
-                flag_dummies[col] = 0
+        for flag in FLAGS:
+            col_name = f'flag_{flag}'
+            if col_name not in flag_dummies.columns:
+                flag_dummies[col_name] = 0
         
-        # Sort the dummy columns
-        protocol_dummies = protocol_dummies[sorted(expected_protocols)]
-        service_dummies = service_dummies[sorted(expected_services)]
-        flag_dummies = flag_dummies[sorted(expected_flags)]
+        # Sort columns to ensure consistent order
+        protocol_dummies = protocol_dummies[sorted([f'protocol_type_{p}' for p in PROTOCOL_TYPES])]
+        service_dummies = service_dummies[sorted([f'service_{s}' for s in SERVICES])]
+        flag_dummies = flag_dummies[sorted([f'flag_{f}' for f in FLAGS])]
         
         # Debug information after encoding
         st.write("\nEncoded features:")
@@ -101,7 +81,7 @@ def preprocess_data(df):
         st.write("Service features:", service_dummies.shape[1])
         st.write("Flag features:", flag_dummies.shape[1])
         
-        # Combine all features
+        # Combine all features in the correct order
         final_df = pd.concat([
             numeric_data,
             protocol_dummies,
@@ -115,30 +95,31 @@ def preprocess_data(df):
         st.write("\nFinal feature vector shape:", X.shape)
         st.write("Total features:", X.shape[1])
         
-        # Verify feature count
+        # Detailed feature count verification
         expected_features = (
-            len(numeric_columns) +      # Numeric features
-            len(PROTOCOL_TYPES) +       # Protocol dummy features
-            len(SERVICES) +             # Service dummy features
-            len(FLAGS)                  # Flag dummy features
-        )
+            len(numeric_columns) +      # 38 numeric features
+            len(PROTOCOL_TYPES) +       # 3 protocol features
+            len(SERVICES) +             # 70 service features
+            len(FLAGS)                  # 11 flag features
+        )                              # Total: 122 features
+        
+        st.write("\nFeature count verification:")
+        st.write(f"Numeric features: {len(numeric_columns)}")
+        st.write(f"Protocol features: {len(PROTOCOL_TYPES)}")
+        st.write(f"Service features: {len(SERVICES)}")
+        st.write(f"Flag features: {len(FLAGS)}")
+        st.write(f"Total expected: {expected_features}")
         
         if X.shape[1] != 122:
             st.error(f"Expected 122 features, but got {X.shape[1]}")
-            st.write(f"Expected breakdown:")
-            st.write(f"Numeric features: {len(numeric_columns)}")
-            st.write(f"Protocol features: {len(PROTOCOL_TYPES)}")
-            st.write(f"Service features: {len(SERVICES)}")
-            st.write(f"Flag features: {len(FLAGS)}")
-            st.write(f"Total expected: {expected_features}")
-            st.write("Final columns:", final_df.columns.tolist())
+            st.write("Column names:", final_df.columns.tolist())
             return None
             
         return X
 
     except Exception as e:
         st.error(f"Error in preprocessing: {str(e)}")
-        st.exception(e)  # This will show the full traceback
+        st.exception(e)
         return None
 
 def load_models():
