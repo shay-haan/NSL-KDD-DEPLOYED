@@ -59,19 +59,16 @@ def preprocess_data(df):
         service_dummies = pd.get_dummies(df['service'], prefix='service')
         flag_dummies = pd.get_dummies(df['flag'], prefix='flag')
         
-        # Ensure all expected categories are present
-        for protocol in PROTOCOL_TYPES:
-            if f'protocol_type_{protocol}' not in protocol_dummies.columns:
-                protocol_dummies[f'protocol_type_{protocol}'] = 0
-                
-        for service in SERVICES:
-            if f'service_{service}' not in service_dummies.columns:
-                service_dummies[f'service_{service}'] = 0
-                
-        for flag in FLAGS:
-            if f'flag_{flag}' not in flag_dummies.columns:
-                flag_dummies[f'flag_{flag}'] = 0
+        # Print debugging information
+        st.write("Number of numeric features:", len(numeric_columns))
+        st.write("Number of protocol types:", len(PROTOCOL_TYPES))
+        st.write("Number of services:", len(SERVICES))
+        st.write("Number of flags:", len(FLAGS))
         
+        st.write("\nActual feature counts in data:")
+        st.write("Protocol dummy columns:", protocol_dummies.shape[1])
+        st.write("Service dummy columns:", service_dummies.shape[1])
+        st.write("Flag dummy columns:", flag_dummies.shape[1])
         # Convert numeric columns to float
         numeric_data = df[numeric_columns].astype(float)
         
