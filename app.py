@@ -3,6 +3,7 @@ import pandas as pd
 import numpy as np
 from sklearn.preprocessing import LabelEncoder, OneHotEncoder
 import pickle
+from datetime import datetime
 
 # Set page config
 st.set_page_config(
@@ -10,6 +11,10 @@ st.set_page_config(
     page_icon="🛡️",
     layout="wide"
 )
+
+# Display current time and user
+st.write(f"Current Date and Time (UTC): {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')}")
+st.write(f"Current User: shay-haan")
 
 # Define the exact categories used in NSL-KDD dataset
 PROTOCOL_TYPES = ['tcp', 'udp', 'icmp']
@@ -146,6 +151,12 @@ def load_models():
                 'Probe': pickle.load(open('models/xgb_Probe.pkl', 'rb')),
                 'R2L': pickle.load(open('models/xgb_R2L.pkl', 'rb')),
                 'U2R': pickle.load(open('models/xgb_U2R.pkl', 'rb'))
+            },
+            'logistic': {
+                'DoS': pickle.load(open('models/lr_DoS.pkl', 'rb')),
+                'Probe': pickle.load(open('models/lr_Probe.pkl', 'rb')),
+                'R2L': pickle.load(open('models/lr_R2L.pkl', 'rb')),
+                'U2R': pickle.load(open('models/lr_U2R.pkl', 'rb'))
             }
         }
         return models
@@ -155,8 +166,10 @@ def load_models():
 
 def make_predictions(X, models):
     results = {}
+    ensemble_results = {'DoS': [], 'Probe': [], 'R2L': [], 'U2R': []}
     
-    for model_type in ['xgboost']:
+    # Make predictions for each model type
+    for model_type in ['xgboost', 'logistic']:
         results[model_type] = {}
         for attack_type in ['DoS', 'Probe', 'R2L', 'U2R']:
             try:
@@ -168,11 +181,64 @@ def make_predictions(X, models):
                     'percentage': float(attack_percentage),
                     'predictions': predictions
                 }
+                # Store predictions for ensemble
+                ensemble_results[attack_type].append(predictions)
             except Exception as e:
                 st.error(f"Error in {model_type} model for {attack_type}: {str(e)}")
                 return None
     
+    # Calculate ensemble results (majority voting)
+    results['ensemble'] = {}
+    for attack_type in ['DoS', 'Probe', 'R2L', 'U2R']:
+        # Stack predictions from all models
+        stacked_predictions = np.stack(ensemble_results[attack_type])
+        # Take majority vote (mean > 0.5 means majority predicted 1)
+        ensemble_pred = (np.mean(stacked_predictions, axis=0) > 0.5).astype(int)
+        attack_count = np.sum(ensemble_pred == 1)
+        attack_percentage = (attack_count / len(ensemble_pred)) * 100
+        results['ensemble'][attack_type] = {
+            'count': int(attack_count),
+            'percentage': float(attack_percentage),
+            'predictions': ensemble_pred
+        }
+    
     return results
+
+def display_results(results, df):
+    st.write("### Detection Results")
+    
+    # Create tabs for different model types
+    tabs = st.tabs(["XGBoost", "Logistic Regression", "Ensemble"])
+    
+    for tab, model_type in zip(tabs, ['xgboost', 'logistic', 'ensemble']):
+        with tab:
+            st.write(f"#### {model_type.upper()} Model Results")
+            
+            cols = st.columns(4)
+            for col, (attack_type, result) in zip(cols, results[model_type].items()):
+                with col:
+                    st.metric(
+                        label=f"{attack_type} Attacks",
+                        value=f"{result['count']}",
+                        delta=f"{result['percentage']:.2f}%"
+                    )
+            
+            # Create detailed results DataFrame
+            detailed_results = df.copy()
+            for attack_type, result in results[model_type].items():
+                detailed_results[f'{attack_type}_prediction'] = result['predictions']
+            
+            st.write("### Detailed Results")
+            st.dataframe(detailed_results)
+            
+            # Download button for results
+            csv = detailed_results.to_csv(index=False)
+            st.download_button(
+                label=f"Download {model_type.upper()} results as CSV",
+                data=csv,
+                file_name=f'{model_type}_detection_results.csv',
+                mime='text/csv'
+            )
 
 def main():
     st.title('Network Intrusion Detection System')
@@ -202,36 +268,7 @@ def main():
                         results = make_predictions(X, models)
                         
                         if results is not None:
-                            st.write("### Detection Results")
-                            
-                            for model_type in results:
-                                st.write(f"#### {model_type.upper()} Model Results")
-                                
-                                cols = st.columns(4)
-                                for col, (attack_type, result) in zip(cols, results[model_type].items()):
-                                    with col:
-                                        st.metric(
-                                            label=f"{attack_type} Attacks",
-                                            value=f"{result['count']}",
-                                            delta=f"{result['percentage']:.2f}%"
-                                        )
-                                
-                                # Create detailed results DataFrame
-                                detailed_results = df.copy()
-                                for attack_type, result in results[model_type].items():
-                                    detailed_results[f'{attack_type}_prediction'] = result['predictions']
-                                
-                                st.write("### Detailed Results")
-                                st.dataframe(detailed_results)
-                                
-                                # Download button for results
-                                csv = detailed_results.to_csv(index=False)
-                                st.download_button(
-                                    label=f"Download {model_type.upper()} results as CSV",
-                                    data=csv,
-                                    file_name=f'{model_type}_detection_results.csv',
-                                    mime='text/csv'
-                                )
+                            display_results(results, df)
                 
         except Exception as e:
             st.error(f"Error processing file: {str(e)}")
