@@ -1,3 +1,4 @@
+# Standard library imports
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -5,18 +6,23 @@ import pickle
 import plotly.express as px
 from datetime import datetime
 
-# Page config
+# ------------------------------
+# Page Configuration
+# ------------------------------
 st.set_page_config(
     page_title="Network IDS Research Project",
     page_icon="🔒",
     layout="wide"
 )
 
+# ------------------------------
+# Helper Functions
+# ------------------------------
 @st.cache_resource
 def load_models():
     """Load all saved models"""
     try:
-        with open('all_models.pkl', 'rb') as f:
+        with open('models/all_models.pkl', 'rb') as f:
             models = pickle.load(f)
             st.success("Models loaded successfully!")
             return models
@@ -25,28 +31,28 @@ def load_models():
         return None
 
 def preprocess_data(df):
-    """Preprocess data exactly as we did during training"""
+    """Preprocess data for model input"""
     try:
-        # Define expected values from training - EXACT list of 70 services
+        # Expected feature values from training
         expected_values = {
             'protocol_type': ['icmp', 'tcp', 'udp'],
             'service': [
-                'IRC', 'X11', 'Z39_50', 'aol', 'auth', 'bgp', 'courier', 'csnet_ns', 
-                'ctf', 'daytime', 'discard', 'domain', 'domain_u', 'echo', 'eco_i', 
-                'ecr_i', 'efs', 'exec', 'finger', 'ftp', 'ftp_data', 'gopher', 
-                'hostnames', 'http', 'http_443', 'http_2784', 'http_8001', 'imap4', 
-                'IRC', 'iso_tsap', 'klogin', 'kshell', 'ldap', 'link', 'login', 
-                'mtp', 'name', 'netbios_dgm', 'netbios_ns', 'netbios_ssn', 'netstat',
-                'nnsp', 'nntp', 'ntp_u', 'other', 'pm_dump', 'pop_2', 'pop_3', 
-                'printer', 'private', 'red_i', 'remote_job', 'rje', 'shell', 'smtp',
-                'sql_net', 'ssh', 'sunrpc', 'supdup', 'systat', 'telnet', 'tftp_u',
-                'tim_i', 'time', 'urh_i', 'urp_i', 'uucp', 'uucp_path', 'vmnet',
-                'whois', 'X11', 'Z39_50', 'aol', 'harvest'  # Added missing service
+                'aol', 'auth', 'bgp', 'courier', 'csnet_ns', 'ctf', 'daytime',
+                'discard', 'domain', 'domain_u', 'echo', 'eco_i', 'ecr_i', 'efs',
+                'exec', 'finger', 'ftp', 'ftp_data', 'gopher', 'harvest', 'hostnames',
+                'http', 'http_2784', 'http_443', 'http_8001', 'imap4', 'IRC',
+                'iso_tsap', 'klogin', 'kshell', 'ldap', 'link', 'login', 'mtp',
+                'name', 'netbios_dgm', 'netbios_ns', 'netbios_ssn', 'netstat',
+                'nnsp', 'nntp', 'ntp_u', 'other', 'pm_dump', 'pop_2', 'pop_3',
+                'printer', 'private', 'red_i', 'remote_job', 'rje', 'shell',
+                'smtp', 'sql_net', 'ssh', 'sunrpc', 'supdup', 'systat', 'telnet',
+                'tftp_u', 'tim_i', 'time', 'urh_i', 'urp_i', 'uucp', 'uucp_path',
+                'vmnet', 'whois', 'X11', 'Z39_50'
             ],
             'flag': ['OTH', 'REJ', 'RSTO', 'RSTOS0', 'RSTR', 'S0', 'S1', 'S2', 'S3', 'SF', 'SH']
         }
 
-        # Numeric features in exact order
+        # Numeric features
         numeric_features = [
             'duration', 'src_bytes', 'dst_bytes', 'land', 'wrong_fragment', 'urgent',
             'hot', 'num_failed_logins', 'logged_in', 'num_compromised', 'root_shell',
@@ -61,9 +67,9 @@ def preprocess_data(df):
             'dst_host_srv_rerror_rate'
         ]
 
-        # Create copy of input data
+        # Process data
         df_processed = df.copy()
-
+        
         # Handle numeric features
         for col in numeric_features:
             if col not in df_processed.columns:
@@ -72,65 +78,51 @@ def preprocess_data(df):
                 df_processed[col] = pd.to_numeric(df_processed[col], errors='coerce').fillna(0)
 
         # Process categorical features
+        categorical_features = {}
         for feature, values in expected_values.items():
-            # Create dummy variables
             dummies = pd.get_dummies(df_processed[feature], prefix=feature)
-            
-            # Add missing columns with zeros
-            for value in values:
-                col_name = f"{feature}_{value}"
-                if col_name not in dummies.columns:
-                    dummies[col_name] = 0
-            
-            # Keep only expected columns in correct order
             expected_cols = [f"{feature}_{value}" for value in values]
-            dummies = dummies[expected_cols]
-            
-            # Add to processed dataframe
-            df_processed = pd.concat([df_processed, dummies], axis=1)
+            for col in expected_cols:
+                if col not in dummies.columns:
+                    dummies[col] = 0
+            categorical_features[feature] = dummies[expected_cols]
 
-        # Drop original categorical columns
-        df_processed = df_processed.drop(['protocol_type', 'service', 'flag'], axis=1)
+        # Combine features
+        df_processed = df_processed[numeric_features]
+        for feature in ['protocol_type', 'service', 'flag']:
+            df_processed = pd.concat([df_processed, categorical_features[feature]], axis=1)
 
-        # Create final feature order
-        final_features = (
-            numeric_features +
-            [f'protocol_type_{p}' for p in expected_values['protocol_type']] +
-            [f'service_{s}' for s in expected_values['service']] +
-            [f'flag_{f}' for f in expected_values['flag']]
-        )
+        # Convert to numpy array
+        X = df_processed.to_numpy()
 
-        # Select features in correct order
-        df_processed = df_processed[final_features]
-
-        # Print verification info
+        # Verify feature counts
         st.write("\nFeature count verification:")
         st.write(f"Numeric features: {len(numeric_features)}")
         st.write(f"Protocol features: {len(expected_values['protocol_type'])}")
         st.write(f"Service features: {len(expected_values['service'])}")
         st.write(f"Flag features: {len(expected_values['flag'])}")
-        st.write(f"Total features: {df_processed.shape[1]}")
+        st.write(f"Total features: {X.shape[1]}")
 
-        return df_processed
+        if X.shape[1] != 122:
+            raise ValueError(f"Feature shape mismatch, expected: 122, got {X.shape[1]}")
+
+        return X
 
     except Exception as e:
         st.error(f"Error processing file: {str(e)}")
         return None
 
-def make_predictions(df_processed, models, model_type):
-    """Make predictions using specified model type"""
+def make_predictions(X, models, model_type):
+    """Make predictions using specified model"""
     results = {}
     for attack_type in ['DoS', 'Probe', 'R2L', 'U2R']:
         try:
-            # Get model and make predictions
             if model_type == 'xgboost':
                 model = models['xgboost_models'][attack_type]['model']
             else:
                 model = models[f'{model_type}_models'][attack_type]
             
-            # Make predictions
-            pred_proba = model.predict_proba(df_processed)
-            
+            pred_proba = model.predict_proba(X)
             results[attack_type] = {
                 'probability': pred_proba[:, 1],
                 'prediction': pred_proba[:, 1] > 0.5,
@@ -143,18 +135,15 @@ def make_predictions(df_processed, models, model_type):
     return results
 
 def display_results(results_dict, df):
-    """Display comparison of model predictions"""
+    """Display model comparison results"""
     st.subheader("Model Comparison")
-    
-    # Create columns for each attack type
     cols = st.columns(4)
     
     for attack_type, col in zip(['DoS', 'Probe', 'R2L', 'U2R'], cols):
         with col:
             st.write(f"**{attack_type} Attack Detection**")
-            
-            # Compare predictions from each model
             comparison_data = []
+            
             for model_type in ['xgboost', 'logistic', 'ensemble']:
                 if attack_type in results_dict[model_type]:
                     result = results_dict[model_type][attack_type]
@@ -166,12 +155,10 @@ def display_results(results_dict, df):
                             'Percentage': (detected/len(df)*100)
                         })
             
-            # Display comparison table
             if comparison_data:
                 comparison_df = pd.DataFrame(comparison_data)
                 st.dataframe(comparison_df)
                 
-                # Create bar chart
                 fig = px.bar(
                     comparison_df,
                     x='Model',
@@ -180,142 +167,129 @@ def display_results(results_dict, df):
                 )
                 st.plotly_chart(fig, use_container_width=True)
 
-# Main app code
-st.title("🔒 Network Intrusion Detection System")
-st.markdown("""
-### Research Project - Final Semester
-This system uses ensemble machine learning to detect network attacks:
-- Denial of Service (DoS)
-- Probe Attacks
-- Remote to Local (R2L)
-- User to Root (U2R)
-""")
+# ------------------------------
+# Main Application
+# ------------------------------
+def main():
+    # Page title and description
+    st.title("🔒 Network Intrusion Detection System")
+    st.markdown("""
+    ### Research Project - Final Semester
+    This system uses ensemble machine learning to detect network attacks:
+    - Denial of Service (DoS)
+    - Probe Attacks
+    - Remote to Local (R2L)
+    - User to Root (U2R)
+    """)
 
-# Load models
-models = load_models()
+    # Sidebar information
+    st.sidebar.info(f"""
+    Session Info:
+    - Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} UTC
+    - User: shay-haan
+    """)
 
-# Sidebar info
-st.sidebar.info(f"""
-Session Info:
-- Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} UTC
-- User: shay-haan
-""")
+    # Load models
+    models = load_models()
 
-if models:
-    uploaded_file = st.file_uploader("Upload CSV file with network traffic data", type="csv")
-# After loading models
-if models:
-    st.write("Model Structure Verification:")
-    for model_type in ['xgboost_models', 'logistic_models', 'ensemble_models']:
-        st.write(f"\n{model_type} structure:")
-        if model_type in models:
-            for attack_type in ['DoS', 'Probe', 'R2L', 'U2R']:
-                if attack_type in models[model_type]:
-                    if model_type == 'xgboost_models':
-                        st.write(f"  {attack_type}: {type(models[model_type][attack_type]['model'])}")
-                    else:
-                        st.write(f"  {attack_type}: {type(models[model_type][attack_type])}")
-    
-    if uploaded_file:
-        try:
-            # Load data
-            df = pd.read_csv(uploaded_file)
-            st.success(f"Successfully loaded {len(df)} records!")
-            
-            # Show data preview
-            with st.expander("Preview Raw Data"):
-                st.dataframe(df.head())
-                st.info(f"Dataset Shape: {df.shape}")
-            
-            # Analyze button
-            if st.button("Analyze Network Traffic"):
-                with st.spinner("Processing data..."):
-                    # Preprocess data
-                    df_processed = preprocess_data(df)
-                    
-                    if df_processed is not None:
-                        # Get predictions from all models
-                        results = {
-                            'xgboost': make_predictions(df_processed, models, 'xgboost'),
-                            'logistic': make_predictions(df_processed, models, 'logistic'),
-                            'ensemble': make_predictions(df_processed, models, 'ensemble')
-                        }
+    if models:
+        # File upload
+        uploaded_file = st.file_uploader("Upload CSV file with network traffic data", type="csv")
+        
+        if uploaded_file:
+            try:
+                # Load and preview data
+                df = pd.read_csv(uploaded_file)
+                st.success(f"Successfully loaded {len(df)} records!")
+                
+                with st.expander("Preview Raw Data"):
+                    st.dataframe(df.head())
+                    st.info(f"Dataset Shape: {df.shape}")
+                
+                # Analysis button
+                if st.button("Analyze Network Traffic"):
+                    with st.spinner("Processing data..."):
+                        # Preprocess data
+                        X = preprocess_data(df)
                         
-                        # Display results comparison
-                        display_results(results, df)
-                        
-                        # Detailed analysis
-                        st.subheader("Detailed Analysis")
-                        for attack_type in ['DoS', 'Probe', 'R2L', 'U2R']:
-                            with st.expander(f"{attack_type} Detailed Analysis"):
+                        if X is not None:
+                            # Get predictions from all models
+                            results = {
+                                'xgboost': make_predictions(X, models, 'xgboost'),
+                                'logistic': make_predictions(X, models, 'logistic'),
+                                'ensemble': make_predictions(X, models, 'ensemble')
+                            }
+                            
+                            # Display results
+                            display_results(results, df)
+                            
+                            # Detailed analysis
+                            st.subheader("Detailed Analysis")
+                            for attack_type in ['DoS', 'Probe', 'R2L', 'U2R']:
+                                with st.expander(f"{attack_type} Detailed Analysis"):
+                                    for model_type in ['xgboost', 'logistic', 'ensemble']:
+                                        if (results[model_type] and 
+                                            attack_type in results[model_type] and 
+                                            results[model_type][attack_type] is not None):
+                                            
+                                            result = results[model_type][attack_type]
+                                            fig = px.histogram(
+                                                x=result['probability'],
+                                                title=f"{attack_type} Attack Probability Distribution ({model_type})"
+                                            )
+                                            st.plotly_chart(fig)
+                            
+                            # Download results
+                            if st.button("Download Results"):
                                 for model_type in ['xgboost', 'logistic', 'ensemble']:
-                                    if (results[model_type] and 
-                                        attack_type in results[model_type] and 
-                                        results[model_type][attack_type] is not None):
-                                        
-                                        result = results[model_type][attack_type]
-                                        fig = px.histogram(
-                                            x=result['probability'],
-                                            title=f"{attack_type} Attack Probability Distribution ({model_type})"
-                                        )
-                                        st.plotly_chart(fig)
+                                    for attack_type in ['DoS', 'Probe', 'R2L', 'U2R']:
+                                        if (results[model_type] and 
+                                            attack_type in results[model_type] and 
+                                            results[model_type][attack_type] is not None):
+                                            
+                                            result = results[model_type][attack_type]
+                                            df[f'{attack_type}_{model_type}_probability'] = result['probability']
+                                            df[f'{attack_type}_{model_type}_prediction'] = result['prediction']
                                 
-                                # Show high-risk connections
-                                ensemble_result = results['ensemble'][attack_type]
-                                if ensemble_result is not None:
-                                    high_risk = np.where(ensemble_result['probability'] > 0.8)[0]
-                                    if len(high_risk) > 0:
-                                        st.warning(f"Found {len(high_risk)} high-risk connections!")
-                                        st.dataframe(df.iloc[high_risk])
-                        
-                        # Download results
-                        if st.button("Download Results"):
-                            for model_type in ['xgboost', 'logistic', 'ensemble']:
-                                for attack_type in ['DoS', 'Probe', 'R2L', 'U2R']:
-                                    if (results[model_type] and 
-                                        attack_type in results[model_type] and 
-                                        results[model_type][attack_type] is not None):
-                                        
-                                        result = results[model_type][attack_type]
-                                        df[f'{attack_type}_{model_type}_probability'] = result['probability']
-                                        df[f'{attack_type}_{model_type}_prediction'] = result['prediction']
+                                csv = df.to_csv(index=False)
+                                st.download_button(
+                                    "Download Complete Analysis",
+                                    csv,
+                                    f"nids_analysis_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                                    "text/csv",
+                                    key='download-csv'
+                                )
                             
-                            csv = df.to_csv(index=False)
-                            st.download_button(
-                                "Download Complete Analysis",
-                                csv,
-                                f"nids_analysis_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-                                "text/csv",
-                                key='download-csv'
-                            )
-                            
-        except Exception as e:
-            st.error(f"Error processing file: {str(e)}")
-            st.info("Please check your CSV file format.")
-else:
-    st.error("⚠️ Could not load models. Please ensure 'all_models.pkl' exists in the app directory.")
+            except Exception as e:
+                st.error(f"Error processing file: {str(e)}")
+                st.info("Please check your CSV file format.")
+    else:
+        st.error("⚠️ Could not load models. Please ensure 'all_models.pkl' exists in the app directory.")
 
-# Model performance info
-st.sidebar.markdown("---")
-st.sidebar.markdown("""
-### Model Performance
-#### XGBoost
-- DoS: 99.8%
-- Probe: 99.9%
-- R2L: 99.7%
-- U2R: 99.9%
+    # Model performance information
+    st.sidebar.markdown("---")
+    st.sidebar.markdown("""
+    ### Model Performance
+    #### XGBoost
+    - DoS: 99.8%
+    - Probe: 99.9%
+    - R2L: 99.7%
+    - U2R: 99.9%
 
-#### Logistic Regression
-- DoS: 98.9%
-- Probe: 99.1%
-- R2L: 98.8%
-- U2R: 99.2%
+    #### Logistic Regression
+    - DoS: 98.9%
+    - Probe: 99.1%
+    - R2L: 98.8%
+    - U2R: 99.2%
 
-#### Ensemble
-- DoS: 99.998%
-- Probe: 100%
-- R2L: 99.999%
-- U2R: 100%
+    #### Ensemble
+    - DoS: 99.998%
+    - Probe: 100%
+    - R2L: 99.999%
+    - U2R: 100%
 
-*Based on test dataset evaluation*
-""")
+    *Based on test dataset evaluation*
+    """)
+
+if __name__ == "__main__":
+    main()
