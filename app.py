@@ -27,28 +27,9 @@ def load_models():
 def preprocess_data(df):
     """Preprocess data exactly as we did during training"""
     try:
-        # Define expected values from training - use EXACT values from training
-        expected_values = {
-            'protocol_type': ['icmp', 'tcp', 'udp'],
-            # Complete list of 70 services from training
-            'service': [
-                'IRC', 'X11', 'Z39_50', 'aol', 'auth', 'bgp', 'courier', 'csnet_ns', 
-                'ctf', 'daytime', 'discard', 'domain', 'domain_u', 'echo', 'eco_i', 
-                'ecr_i', 'efs', 'exec', 'finger', 'ftp', 'ftp_data', 'gopher', 
-                'hostnames', 'http', 'http_443', 'imap4', 'iso_tsap', 'klogin', 
-                'kshell', 'ldap', 'link', 'login', 'mtp', 'name', 'netbios_dgm', 
-                'netbios_ns', 'netbios_ssn', 'netstat', 'nnsp', 'nntp', 'ntp_u', 
-                'other', 'pm_dump', 'pop_2', 'pop_3', 'printer', 'private', 
-                'remote_job', 'rje', 'shell', 'smtp', 'sql_net', 'ssh', 'sunrpc', 
-                'supdup', 'systat', 'telnet', 'tftp_u', 'tim_i', 'time', 'urp_i', 
-                'uucp', 'uucp_path', 'vmnet', 'whois', 'http_8001', 'http_2784',
-                'red_i', 'urh_i', 'spy'
-            ],
-            'flag': ['OTH', 'REJ', 'RSTO', 'RSTOS0', 'RSTR', 'S0', 'S1', 'S2', 'S3', 'SF', 'SH']
-        }
-
-        # Numeric features in exact order
-        numeric_features = [
+        # Load the exact feature order from training
+        feature_order = [
+            # Numeric features first
             'duration', 'src_bytes', 'dst_bytes', 'land', 'wrong_fragment', 'urgent',
             'hot', 'num_failed_logins', 'logged_in', 'num_compromised', 'root_shell',
             'su_attempted', 'num_root', 'num_file_creations', 'num_shells',
@@ -59,69 +40,125 @@ def preprocess_data(df):
             'dst_host_diff_srv_rate', 'dst_host_same_src_port_rate',
             'dst_host_srv_diff_host_rate', 'dst_host_serror_rate',
             'dst_host_srv_serror_rate', 'dst_host_rerror_rate',
-            'dst_host_srv_rerror_rate'
+            'dst_host_srv_rerror_rate',
+            # Protocol features
+            'protocol_type_icmp', 'protocol_type_tcp', 'protocol_type_udp',
+            # Service features
+            'service_IRC', 'service_X11', 'service_Z39_50', 'service_auth', 'service_bgp',
+            'service_courier', 'service_csnet_ns', 'service_ctf', 'service_daytime',
+            'service_discard', 'service_domain', 'service_domain_u', 'service_echo',
+            'service_eco_i', 'service_ecr_i', 'service_efs', 'service_exec',
+            'service_finger', 'service_ftp', 'service_ftp_data', 'service_gopher',
+            'service_hostnames', 'service_http', 'service_http_443', 'service_http_8001',
+            'service_http_2784', 'service_imap4', 'service_iso_tsap', 'service_klogin',
+            'service_kshell', 'service_ldap', 'service_link', 'service_login',
+            'service_mtp', 'service_name', 'service_netbios_dgm', 'service_netbios_ns',
+            'service_netbios_ssn', 'service_netstat', 'service_nnsp', 'service_nntp',
+            'service_ntp_u', 'service_other', 'service_pm_dump', 'service_pop_2',
+            'service_pop_3', 'service_printer', 'service_private', 'service_red_i',
+            'service_remote_job', 'service_rje', 'service_shell', 'service_smtp',
+            'service_sql_net', 'service_ssh', 'service_sunrpc', 'service_supdup',
+            'service_systat', 'service_telnet', 'service_tftp_u', 'service_tim_i',
+            'service_time', 'service_urh_i', 'service_urp_i', 'service_uucp',
+            'service_uucp_path', 'service_vmnet', 'service_whois',
+            # Flag features
+            'flag_OTH', 'flag_REJ', 'flag_RSTO', 'flag_RSTOS0', 'flag_RSTR',
+            'flag_S0', 'flag_S1', 'flag_S2', 'flag_S3', 'flag_SF', 'flag_SH'
         ]
 
-        # Work on a copy
+        # Create a copy of the input dataframe
         df_processed = df.copy()
 
-        # Handle numeric features
+        # Convert numeric features
+        numeric_features = feature_order[:38]  # First 38 features are numeric
         for col in numeric_features:
             if col not in df_processed.columns:
                 df_processed[col] = 0
             else:
                 df_processed[col] = pd.to_numeric(df_processed[col], errors='coerce').fillna(0)
 
-        # Create one-hot encoded columns for each categorical feature
-        encoded_features = []
-        
-        # Add numeric features first
-        numeric_df = df_processed[numeric_features]
-        encoded_features.append(numeric_df)
-        
-        # Process each categorical feature
-        for feature, values in expected_values.items():
-            # Create dummy variables
-            dummies = pd.get_dummies(df_processed[feature], prefix=feature)
-            
-            # Create columns for all expected values
-            for value in values:
-                col_name = f"{feature}_{value}"
-                if col_name not in dummies.columns:
-                    dummies[col_name] = 0
-            
-            # Only keep expected columns in the correct order
-            expected_cols = [f"{feature}_{value}" for value in values]
-            dummies = dummies[expected_cols]
-            encoded_features.append(dummies)
+        # Create categorical features
+        # Protocol type
+        protocol_dummies = pd.get_dummies(df_processed['protocol_type'], prefix='protocol_type')
+        protocol_features = feature_order[38:41]  # Protocol features
+        for col in protocol_features:
+            if col not in protocol_dummies.columns:
+                protocol_dummies[col] = 0
 
-        # Combine all features
-        df_processed = pd.concat(encoded_features, axis=1)
+        # Service
+        service_dummies = pd.get_dummies(df_processed['service'], prefix='service')
+        service_features = feature_order[41:111]  # Service features
+        for col in service_features:
+            if col not in service_dummies.columns:
+                service_dummies[col] = 0
 
-        # Verify feature counts
-        n_protocol = len(expected_values['protocol_type'])
-        n_service = len(expected_values['service'])
-        n_flag = len(expected_values['flag'])
-        n_numeric = len(numeric_features)
+        # Flag
+        flag_dummies = pd.get_dummies(df_processed['flag'], prefix='flag')
+        flag_features = feature_order[111:]  # Flag features
+        for col in flag_features:
+            if col not in flag_dummies.columns:
+                flag_dummies[col] = 0
 
-        st.write("\nFeature count verification:")
-        st.write(f"Numeric features: {n_numeric}")
-        st.write(f"Protocol features: {n_protocol}")
-        st.write(f"Service features: {n_service}")
-        st.write(f"Flag features: {n_flag}")
-        st.write(f"Total features: {df_processed.shape[1]}")
+        # Combine all features in exact order
+        df_processed = pd.concat([
+            df_processed[numeric_features],
+            protocol_dummies[protocol_features],
+            service_dummies[service_features],
+            flag_dummies[flag_features]
+        ], axis=1)
+
+        # Verify we have all features in correct order
+        missing_features = set(feature_order) - set(df_processed.columns)
+        extra_features = set(df_processed.columns) - set(feature_order)
+
+        if missing_features:
+            st.warning(f"Missing features: {missing_features}")
+        if extra_features:
+            st.warning(f"Extra features: {extra_features}")
+
+        # Add debug information
+        st.write("\nFeature Statistics:")
+        st.write("Sample values for first 5 rows:")
+        st.write(df_processed.head())
         
-        # Verify shape
+        st.write("\nFeature value ranges:")
+        st.write(df_processed.describe())
+
+        # Verify final shape
         if df_processed.shape[1] != 122:
             raise ValueError(f"Feature shape mismatch, expected: 122, got {df_processed.shape[1]}")
 
-        return df_processed
+        return df_processed[feature_order]  # Ensure exact feature order
 
     except Exception as e:
         st.error(f"Error processing file: {str(e)}")
         if 'df_processed' in locals():
             st.write("Current features:", df_processed.columns.tolist())
         return None
+
+# In the main app, add more debugging for predictions
+if df_processed is not None:
+    # Make predictions
+    results = {}
+    for attack_type in ['DoS', 'Probe', 'R2L', 'U2R']:
+        model = models['xgboost_models'][attack_type]['model']
+        
+        # Add debugging info
+        st.write(f"\nPredicting {attack_type}:")
+        st.write(f"Model feature count: {model.n_features_in_}")
+        st.write(f"Input feature count: {df_processed.shape[1]}")
+        
+        # Make prediction
+        pred_proba = model.predict_proba(df_processed)
+        
+        # Show probability distribution
+        st.write(f"{attack_type} probability distribution:")
+        st.write(pd.DataFrame(pred_proba).describe())
+        
+        results[attack_type] = {
+            'probability': pred_proba[:, 1],
+            'prediction': pred_proba[:, 1] > 0.5
+        }
 
 # Main UI
 st.title("🔒 Network Intrusion Detection System")
