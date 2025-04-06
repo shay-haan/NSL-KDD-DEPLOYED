@@ -45,8 +45,8 @@ def preprocess_data(df, models):
         # Work on a copy of the dataframe
         df_processed = df.copy()
         
-        # Create initial numeric features (excluding target columns and categorical columns)
-        numeric_base_features = [
+        # Define base numeric features (these are the original numeric columns)
+        base_numeric_features = [
             "duration", "src_bytes", "dst_bytes", "land", "wrong_fragment", 
             "urgent", "hot", "num_failed_logins", "logged_in", "num_compromised",
             "root_shell", "su_attempted", "num_root", "num_file_creations",
@@ -60,61 +60,44 @@ def preprocess_data(df, models):
             "dst_host_rerror_rate", "dst_host_srv_rerror_rate"
         ]
         
-        # Create binary target columns from label
-        attack_types = {
-            'DoS': ['neptune', 'smurf', 'pod', 'teardrop', 'land', 'back', 'apache2', 'udpstorm', 'processtable', 'mailbomb'],
-            'Probe': ['ipsweep', 'nmap', 'portsweep', 'satan', 'mscan', 'saint'],
-            'R2L': ['guess_passwd', 'ftp_write', 'imap', 'phf', 'multihop', 'warezmaster', 'warezclient', 'spy', 'xsnoop', 'snmpguess', 'snmpgetattack', 'httptunnel', 'sendmail', 'named'],
-            'U2R': ['buffer_overflow', 'loadmodule', 'perl', 'rootkit', 'sqlattack', 'xterm', 'ps']
+        # Keep only numeric features initially
+        numeric_df = df_processed[base_numeric_features].copy()
+        
+        # Add binary target columns (initialized to 0)
+        for target in ['DoS', 'Probe', 'R2L', 'U2R']:
+            numeric_df[target] = 0
+            
+        # Now handle categorical features
+        # IMPORTANT: We only use the categories that were in the training data
+        categorical_features = {
+            'protocol_type': ['icmp', 'tcp', 'udp'],
+            'service': [
+                'IRC', 'X11', 'Z39_50', 'aol', 'auth', 'bgp', 'courier', 'csnet_ns', 
+                'ctf', 'daytime', 'discard', 'domain', 'domain_u', 'echo', 'eco_i', 
+                'ecr_i', 'efs', 'exec', 'finger', 'ftp', 'ftp_data', 'gopher', 'harvest',
+                'hostnames', 'http', 'http_2784', 'http_443', 'http_8001', 'imap4', 
+                'ISO_tsap', 'klogin', 'kshell', 'ldap', 'link', 'login', 'mtp', 'name',
+                'netbios_dgm', 'netbios_ns', 'netbios_ssn', 'netstat', 'nnsp', 'nntp',
+                'ntp_u', 'other', 'pop_2', 'pop_3', 'printer', 'private', 'remote_job',
+                'rje', 'shell', 'smtp', 'sql_net', 'ssh', 'sunrpc', 'supdup', 'systat',
+                'telnet', 'tftp_u', 'tim_i', 'time', 'urh_i', 'urp_i', 'uucp', 
+                'uucp_path', 'vmnet', 'whois'
+            ],
+            'flag': [
+                'OTH', 'REJ', 'RSTO', 'RSTOS0', 'RSTR', 'S0', 'S1', 'S2', 'S3', 
+                'SF', 'SH'
+            ]
         }
         
-        # Create target columns (initialize with zeros)
-        for attack_type in ['DoS', 'Probe', 'R2L', 'U2R']:
-            df_processed[attack_type] = 0
-            if 'label' in df_processed.columns:
-                df_processed[attack_type] = df_processed['label'].isin(attack_types[attack_type]).astype(int)
+        # Create dummy variables for each categorical feature
+        for feature, categories in categorical_features.items():
+            # Create dummy columns for each known category
+            for category in categories:
+                col_name = f"{feature}_{category}"
+                numeric_df[col_name] = (df_processed[feature] == category).astype(int)
         
-        # Extract categorical columns
-        categorical_columns = ['protocol_type', 'service', 'flag']
-        
-        # Get the mapping dictionaries for categorical features
-        protocol_types = sorted(list(set(x.replace('protocol_type_', '') 
-                              for x in feature_names if x.startswith('protocol_type_'))))
-        services = sorted(list(set(x.replace('service_', '') 
-                        for x in feature_names if x.startswith('service_'))))
-        flags = sorted(list(set(x.replace('flag_', '') 
-                     for x in feature_names if x.startswith('flag_'))))
-        
-        # Create dummy variables with fixed categories
-        all_dummies = pd.DataFrame(index=df_processed.index)
-        for col, categories, prefix in [
-            ('protocol_type', protocol_types, 'protocol_type_'),
-            ('service', services, 'service_'),
-            ('flag', flags, 'flag_')
-        ]:
-            # Create dummies with a fixed set of columns
-            dummies = pd.get_dummies(df_processed[col], prefix=prefix)
-            
-            # Ensure all expected categories exist
-            for cat in categories:
-                col_name = f"{prefix}{cat}"
-                if col_name not in dummies.columns:
-                    dummies[col_name] = 0
-            
-            # Only keep the expected categories and in the right order
-            expected_cols = [f"{prefix}{cat}" for cat in categories]
-            dummies = dummies.reindex(columns=expected_cols, fill_value=0)
-            
-            all_dummies = pd.concat([all_dummies, dummies], axis=1)
-        
-        # First, create a DataFrame with numeric features
-        numeric_df = df_processed[numeric_base_features + ['DoS', 'Probe', 'R2L', 'U2R']]
-        
-        # Combine numeric and categorical features
-        final_df = pd.concat([numeric_df, all_dummies], axis=1)
-        
-        # Ensure we have all required features in the correct order
-        final_features = final_df.reindex(columns=feature_names, fill_value=0)
+        # Ensure we have exactly the features the model expects
+        final_features = numeric_df.reindex(columns=feature_names, fill_value=0)
         
         st.write("Number of features after preprocessing:", len(final_features.columns))
         st.write("Features match expected:", set(final_features.columns) == set(feature_names))
@@ -124,7 +107,7 @@ def preprocess_data(df, models):
     except Exception as e:
         st.error(f"Error processing file: {str(e)}")
         st.write("Columns in input data:", df.columns.tolist())
-        st.write("Please check your CSV file format.")
+        st.write("Number of columns in input:", len(df.columns))
         return None
 
 # Load models first!
