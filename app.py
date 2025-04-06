@@ -25,28 +25,29 @@ def load_models():
         return None
 
 def preprocess_data(df):
-    """Preprocess input data to match training format"""
+    """Preprocess data exactly as we did during training"""
     try:
-        # Define expected categorical values
+        # Define expected values from training
         expected_values = {
             'protocol_type': ['icmp', 'tcp', 'udp'],
             'service': [
-                'IRC', 'X11', 'Z39_50', 'auth', 'bgp', 'courier', 'csnet_ns', 'ctf', 
-                'daytime', 'discard', 'domain', 'domain_u', 'echo', 'eco_i', 'ecr_i', 
-                'efs', 'exec', 'finger', 'ftp', 'ftp_data', 'gopher', 'hostnames', 
-                'http', 'http_443', 'imap4', 'iso_tsap', 'klogin', 'kshell', 'ldap', 
-                'link', 'login', 'mtp', 'name', 'netbios_dgm', 'netbios_ns', 
-                'netbios_ssn', 'netstat', 'nnsp', 'nntp', 'ntp_u', 'other', 'pm_dump',
-                'pop_2', 'pop_3', 'printer', 'private', 'remote_job', 'rje', 'shell',
-                'smtp', 'sql_net', 'ssh', 'sunrpc', 'supdup', 'systat', 'telnet',
-                'tftp_u', 'tim_i', 'time', 'urp_i', 'uucp', 'uucp_path', 'vmnet',
-                'whois'
+                'IRC', 'X11', 'Z39_50', 'aol', 'auth', 'bgp', 'courier', 'csnet_ns', 
+                'ctf', 'daytime', 'discard', 'domain', 'domain_u', 'echo', 'eco_i', 
+                'ecr_i', 'efs', 'exec', 'finger', 'ftp', 'ftp_data', 'gopher', 
+                'hostnames', 'http', 'http_443', 'http_2784', 'http_8001', 'imap4', 
+                'IRC', 'iso_tsap', 'klogin', 'kshell', 'ldap', 'link', 'login', 
+                'mtp', 'name', 'netbios_dgm', 'netbios_ns', 'netbios_ssn', 'netstat',
+                'nnsp', 'nntp', 'ntp_u', 'other', 'pm_dump', 'pop_2', 'pop_3', 
+                'printer', 'private', 'red_i', 'remote_job', 'rje', 'shell', 'smtp',
+                'sql_net', 'ssh', 'sunrpc', 'supdup', 'systat', 'telnet', 'tftp_u',
+                'tim_i', 'time', 'urh_i', 'urp_i', 'uucp', 'uucp_path', 'vmnet',
+                'whois', 'X11', 'Z39_50'
             ],
             'flag': ['OTH', 'REJ', 'RSTO', 'RSTOS0', 'RSTR', 'S0', 'S1', 'S2', 'S3', 'SF', 'SH']
         }
 
-        # Numeric columns that should be present
-        numeric_columns = [
+        # Base numeric features that should be present
+        numeric_features = [
             'duration', 'src_bytes', 'dst_bytes', 'land', 'wrong_fragment', 'urgent',
             'hot', 'num_failed_logins', 'logged_in', 'num_compromised', 'root_shell',
             'su_attempted', 'num_root', 'num_file_creations', 'num_shells',
@@ -60,54 +61,95 @@ def preprocess_data(df):
             'dst_host_srv_rerror_rate'
         ]
 
-        # Create a copy of the dataframe
+        # Work on a copy
         df_processed = df.copy()
-
-        # One-hot encode categorical variables
-        for feature, categories in expected_values.items():
-            # Create dummy variables
+        
+        # Verify numeric columns exist
+        for col in numeric_features:
+            if col not in df_processed.columns:
+                df_processed[col] = 0
+                
+        # Create one-hot encoded columns for categorical features
+        for feature, values in expected_values.items():
+            # Create dummy variables for current feature
             dummies = pd.get_dummies(df_processed[feature], prefix=feature)
             
-            # Ensure all expected categories are present
-            for category in categories:
-                col_name = f"{feature}_{category}"
+            # Add any missing columns with zeros
+            for value in values:
+                col_name = f"{feature}_{value}"
                 if col_name not in dummies.columns:
                     dummies[col_name] = 0
-
+            
             # Add encoded features to dataframe
             df_processed = pd.concat([df_processed, dummies], axis=1)
             
-            # Remove original categorical column
+            # Drop original categorical column
             df_processed = df_processed.drop(feature, axis=1)
 
-        # Ensure all numeric columns are present
-        for col in numeric_columns:
-            if col not in df_processed.columns:
-                df_processed[col] = 0
-
-        # Get the final feature order
-        feature_order = (
-            numeric_columns + 
+        # Create final feature order
+        final_features = (
+            numeric_features +
             [f'protocol_type_{p}' for p in expected_values['protocol_type']] +
             [f'service_{s}' for s in expected_values['service']] +
             [f'flag_{f}' for f in expected_values['flag']]
         )
 
-        # Select and order features
-        df_processed = df_processed[feature_order]
-        
-        st.write("Feature count verification:")
-        st.write(f"Numeric features: {len(numeric_columns)}")
+        # Select only required features in correct order
+        df_processed = df_processed[final_features]
+
+        # Print feature verification
+        st.write("Original data shape:", df.shape)
+        st.write("\nNumeric columns:", len(numeric_features))
+        st.write("\nUnique protocols:")
+        st.write(expected_values['protocol_type'])
+        st.write("\nUnique services:")
+        st.write(expected_values['service'])
+        st.write("\nUnique flags:")
+        st.write(expected_values['flag'])
+        st.write("\nEncoded features:")
         st.write(f"Protocol features: {len(expected_values['protocol_type'])}")
         st.write(f"Service features: {len(expected_values['service'])}")
         st.write(f"Flag features: {len(expected_values['flag'])}")
+        st.write(f"\nFinal feature vector shape: {df_processed.shape}")
         st.write(f"Total features: {df_processed.shape[1]}")
 
         return df_processed
 
     except Exception as e:
-        st.error(f"Error preprocessing data: {str(e)}")
+        st.error(f"Error processing file: {str(e)}")
+        st.write("Please check your CSV file format.")
+        st.write("Required columns:", numeric_features + list(expected_values.keys()))
         return None
+
+# Update the main app code to use the new preprocessing function
+if uploaded_file:
+    try:
+        # Load data
+        df = pd.read_csv(uploaded_file)
+        st.success(f"Successfully loaded {len(df)} records!")
+        
+        # Preview data
+        with st.expander("Preview Raw Data"):
+            st.dataframe(df.head())
+            st.info(f"Dataset Shape: {df.shape}")
+        
+        # Analysis button
+        if st.button("Analyze Network Traffic"):
+            with st.spinner("Processing data..."):
+                df_processed = preprocess_data(df)
+                
+                if df_processed is not None:
+                    # Make predictions
+                    results = {}
+                    for attack_type in ['DoS', 'Probe', 'R2L', 'U2R']:
+                        model = models['xgboost_models'][attack_type]['model']
+                        pred_proba = model.predict_proba(df_processed)
+                        results[attack_type] = {
+                            'probability': pred_proba[:, 1],
+                            'prediction': pred_proba[:, 1] > 0.5
+                        }
+                    
+                    # Rest of your display code remains the same...
 
 # Main UI
 st.title("🔒 Network Intrusion Detection System")
