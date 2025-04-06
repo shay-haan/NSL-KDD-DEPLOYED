@@ -27,21 +27,21 @@ def load_models():
 def preprocess_data(df):
     """Preprocess data exactly as we did during training"""
     try:
-        # Define expected values from training
+        # Define expected values from training - EXACT list of 70 services
         expected_values = {
             'protocol_type': ['icmp', 'tcp', 'udp'],
             'service': [
-                'IRC', 'X11', 'Z39_50', 'auth', 'bgp', 'courier', 'csnet_ns', 
+                'IRC', 'X11', 'Z39_50', 'aol', 'auth', 'bgp', 'courier', 'csnet_ns', 
                 'ctf', 'daytime', 'discard', 'domain', 'domain_u', 'echo', 'eco_i', 
                 'ecr_i', 'efs', 'exec', 'finger', 'ftp', 'ftp_data', 'gopher', 
-                'hostnames', 'http', 'http_443', 'imap4', 'iso_tsap', 'klogin', 
-                'kshell', 'ldap', 'link', 'login', 'mtp', 'name', 'netbios_dgm', 
-                'netbios_ns', 'netbios_ssn', 'netstat', 'nnsp', 'nntp', 'ntp_u', 
-                'other', 'pm_dump', 'pop_2', 'pop_3', 'printer', 'private', 
-                'remote_job', 'rje', 'shell', 'smtp', 'sql_net', 'ssh', 'sunrpc', 
-                'supdup', 'systat', 'telnet', 'tftp_u', 'tim_i', 'time', 'urp_i', 
-                'uucp', 'uucp_path', 'vmnet', 'whois', 'http_8001', 'http_2784',
-                'red_i', 'urh_i', 'spy'
+                'hostnames', 'http', 'http_443', 'http_2784', 'http_8001', 'imap4', 
+                'IRC', 'iso_tsap', 'klogin', 'kshell', 'ldap', 'link', 'login', 
+                'mtp', 'name', 'netbios_dgm', 'netbios_ns', 'netbios_ssn', 'netstat',
+                'nnsp', 'nntp', 'ntp_u', 'other', 'pm_dump', 'pop_2', 'pop_3', 
+                'printer', 'private', 'red_i', 'remote_job', 'rje', 'shell', 'smtp',
+                'sql_net', 'ssh', 'sunrpc', 'supdup', 'systat', 'telnet', 'tftp_u',
+                'tim_i', 'time', 'urh_i', 'urp_i', 'uucp', 'uucp_path', 'vmnet',
+                'whois', 'X11', 'Z39_50', 'aol', 'harvest'  # Added missing service
             ],
             'flag': ['OTH', 'REJ', 'RSTO', 'RSTOS0', 'RSTR', 'S0', 'S1', 'S2', 'S3', 'SF', 'SH']
         }
@@ -123,7 +123,12 @@ def make_predictions(df_processed, models, model_type):
     for attack_type in ['DoS', 'Probe', 'R2L', 'U2R']:
         try:
             # Get model and make predictions
-            model = models[f'{model_type}_models'][attack_type]
+            if model_type == 'xgboost':
+                model = models['xgboost_models'][attack_type]['model']
+            else:
+                model = models[f'{model_type}_models'][attack_type]
+            
+            # Make predictions
             pred_proba = model.predict_proba(df_processed)
             
             results[attack_type] = {
@@ -198,6 +203,18 @@ Session Info:
 
 if models:
     uploaded_file = st.file_uploader("Upload CSV file with network traffic data", type="csv")
+# After loading models
+if models:
+    st.write("Model Structure Verification:")
+    for model_type in ['xgboost_models', 'logistic_models', 'ensemble_models']:
+        st.write(f"\n{model_type} structure:")
+        if model_type in models:
+            for attack_type in ['DoS', 'Probe', 'R2L', 'U2R']:
+                if attack_type in models[model_type]:
+                    if model_type == 'xgboost_models':
+                        st.write(f"  {attack_type}: {type(models[model_type][attack_type]['model'])}")
+                    else:
+                        st.write(f"  {attack_type}: {type(models[model_type][attack_type])}")
     
     if uploaded_file:
         try:
