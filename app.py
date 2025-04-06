@@ -40,11 +40,16 @@ def preprocess_data(df, models):
     try:
         # Get the exact feature names from our models
         feature_names = models['feature_names']
+        st.write("Number of features expected:", len(feature_names))
         
         # Work on a copy of the dataframe
         df_processed = df.copy()
         
-        # Define attack types (same as in training)
+        # Drop label column from features if it exists (it's not used for prediction)
+        if 'label' in df_processed.columns:
+            df_processed.drop('label', axis=1, inplace=True)
+            
+        # Create binary target columns from label (these will be dropped later)
         attack_types = {
             'DoS': ['neptune', 'smurf', 'pod', 'teardrop', 'land', 'back', 'apache2', 'udpstorm', 'processtable', 'mailbomb'],
             'Probe': ['ipsweep', 'nmap', 'portsweep', 'satan', 'mscan', 'saint'],
@@ -52,24 +57,9 @@ def preprocess_data(df, models):
             'U2R': ['buffer_overflow', 'loadmodule', 'perl', 'rootkit', 'sqlattack', 'xterm', 'ps']
         }
         
-        # Create binary labels for each attack type
-        for attack_type, attack_list in attack_types.items():
-            df_processed[attack_type] = df_processed['label'].isin(attack_list).astype(int)
-            
-        # First, verify we have all required numeric columns
-        numeric_features = [col for col in feature_names 
-                          if not any(x in col for x in ['protocol_type_', 'service_', 'flag_'])]
-        
-        # Check if all numeric features are present
-        missing_numeric = set(numeric_features) - set(df_processed.columns)
-        if missing_numeric:
-            raise ValueError(f"Missing numeric features: {missing_numeric}")
-            
         # Extract categorical columns
         categorical_columns = ['protocol_type', 'service', 'flag']
-        if not all(col in df_processed.columns for col in categorical_columns):
-            raise ValueError(f"Missing categorical columns. Required: {categorical_columns}")
-            
+        
         # Get the mapping dictionaries for categorical features
         protocol_types = sorted(list(set(x.replace('protocol_type_', '') 
                               for x in feature_names if x.startswith('protocol_type_'))))
@@ -79,12 +69,13 @@ def preprocess_data(df, models):
                      for x in feature_names if x.startswith('flag_'))))
         
         # Create dummy variables with fixed categories
+        all_dummies = pd.DataFrame()
         for col, categories, prefix in [
             ('protocol_type', protocol_types, 'protocol_type_'),
             ('service', services, 'service_'),
             ('flag', flags, 'flag_')
         ]:
-            # Create dummies
+            # Create dummies with a fixed set of columns
             dummies = pd.get_dummies(df_processed[col], prefix=prefix)
             
             # Ensure all expected categories exist
@@ -92,29 +83,33 @@ def preprocess_data(df, models):
                 col_name = f"{prefix}{cat}"
                 if col_name not in dummies.columns:
                     dummies[col_name] = 0
-                    
-            # Only keep the expected categories
-            expected_cols = [f"{prefix}{cat}" for cat in categories]
-            dummies = dummies[expected_cols]
             
-            # Add to processed dataframe
-            df_processed = pd.concat([df_processed, dummies], axis=1)
+            # Only keep the expected categories and in the right order
+            expected_cols = [f"{prefix}{cat}" for cat in categories]
+            dummies = dummies.reindex(columns=expected_cols, fill_value=0)
+            
+            all_dummies = pd.concat([all_dummies, dummies], axis=1)
         
         # Drop original categorical columns
         df_processed = df_processed.drop(categorical_columns, axis=1)
         
-        # Select only the required features in the correct order
-        df_processed = df_processed[feature_names]
+        # Add the dummy variables
+        df_processed = pd.concat([df_processed, all_dummies], axis=1)
         
-        st.write("Number of features after preprocessing:", len(feature_names))
-        st.write("Features in processed data:", len(df_processed.columns))
+        # Keep only numeric features that are in the feature_names list
+        numeric_features = [col for col in feature_names 
+                          if not any(x in col for x in ['protocol_type_', 'service_', 'flag_'])]
         
-        return df_processed
+        # Create final dataframe with exact features in exact order
+        final_features = df_processed[feature_names]
+        
+        st.write("Number of features after preprocessing:", len(final_features.columns))
+        
+        return final_features
         
     except Exception as e:
-        st.error(f"Error in preprocessing: {str(e)}")
-        st.write("Columns in input data:", df.columns.tolist())
-        st.write("Number of columns in input:", len(df.columns))
+        st.error(f"Error processing file: {str(e)}")
+        st.write("Please check your CSV file format.")
         return None
 
 # Load models first!
