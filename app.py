@@ -70,7 +70,7 @@ def preprocess_data(df, models):
         # Concatenate dummy variables with the dataset
         df_processed = pd.concat([df_processed, protocol_dummies, service_dummies, flag_dummies], axis=1)
         
-        # Ensure all required columns exist; if missing add with zeros
+        # Ensure all required columns exist; if missing, add with zeros
         for col in feature_names:
             if col not in df_processed.columns:
                 df_processed[col] = 0
@@ -78,6 +78,7 @@ def preprocess_data(df, models):
         # Select only the required features in the correct order
         df_processed = df_processed[feature_names]
         
+        st.write("Expected feature names:", feature_names)
         st.write("Processed feature names:", df_processed.columns.tolist())
         st.write("Number of features after preprocessing:", df_processed.shape[1])
         
