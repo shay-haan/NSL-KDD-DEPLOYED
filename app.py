@@ -38,93 +38,72 @@ def load_models():
 def preprocess_data(df, models):
     """Preprocess data exactly as we did during training"""
     try:
-        # Get the exact feature names from our models
-        feature_names = models['feature_names']
-        st.write("Number of features expected:", len(feature_names))
-        
-        # Define the base numeric features
-        base_numeric_features = [
-            "duration", "src_bytes", "dst_bytes", "land", "wrong_fragment", 
-            "urgent", "hot", "num_failed_logins", "logged_in", "num_compromised",
-            "root_shell", "su_attempted", "num_root", "num_file_creations",
-            "num_shells", "num_access_files", "num_outbound_cmds", "is_host_login",
-            "is_guest_login", "count", "srv_count", "serror_rate", "srv_serror_rate",
-            "rerror_rate", "srv_rerror_rate", "same_srv_rate", "diff_srv_rate",
-            "srv_diff_host_rate", "dst_host_count", "dst_host_srv_count",
-            "dst_host_same_srv_rate", "dst_host_diff_srv_rate", 
-            "dst_host_same_src_port_rate", "dst_host_srv_diff_host_rate",
-            "dst_host_serror_rate", "dst_host_srv_serror_rate",
-            "dst_host_rerror_rate", "dst_host_srv_rerror_rate"
-        ]
-        
         # Known categorical values from training
         categorical_values = {
             'protocol_type': ['tcp', 'udp', 'icmp'],
             'service': [
-                'http', 'private', 'domain_u', 'smtp', 'ftp_data', 'eco_i', 'other',
-                'auth', 'finger', 'domain', 'imap4', 'pop_3', 'telnet', 'Z39_50',
-                'uucp', 'courier', 'ftp', 'eco_j', 'systat', 'time', 'hostnames',
-                'exec', 'ntp_u', 'disk', 'ssh', 'sunrpc', 'csnet_ns', 'X11',
-                'shell', 'supdup', 'name', 'nntp', 'mtp', 'gopher', 'rje',
-                'printer', 'efs', 'daytime', 'ctf', 'link', 'login', 'IRC',
-                'netbios_dgm', 'pop_2', 'ldap', 'netbios_ns', 'netbios_ssn',
-                'sql_net', 'vmnet', 'bgp', 'tim_i', 'urp_i', 'whois', 'http_443',
-                'klogin', 'uucp_path', 'http_8001', 'urh_i', 'http_2784', 'tftp_u',
-                'harvest', 'aol', 'remote_job', 'kshell'
+                'http', 'private', 'domain_u', 'smtp', 'ftp_data', 'eco_i', 'other', 'auth', 
+                'telnet', 'ftp', 'ecr_i', 'time', 'domain', 'ssh', 'IRC', 'remote_job', 'name', 
+                'whois', 'csnet_ns', 'daytime', 'netbios_dgm', 'link', 'systat', 'netbios_ns', 
+                'mtp', 'finger', 'supdup', 'uucp_path', 'pop_3', 'netbios_ssn', 'sunrpc', 'urp_i', 
+                'pm_dump', 'pop_2', 'efs', 'courier', 'uucp', 'klogin', 'kshell', 'echo', 'shell', 
+                'sql_net', 'nntp', 'imap4', 'iso_tsap', 'hostnames', 'exec', 'ntp_u', 'discard', 
+                'X11', 'login', 'printer', 'tim_i', 'gopher', 'ldap', 'bgp', 'vmnet', 'ctf', 'rje'
             ],
             'flag': ['SF', 'S1', 'REJ', 'S2', 'S0', 'S3', 'RSTO', 'RSTR', 'RSTOS0', 'OTH', 'SH']
         }
-        
-        # Work on a copy of the dataframe
+
+        # Base numeric features
+        numeric_features = [
+            'duration', 'src_bytes', 'dst_bytes', 'land', 'wrong_fragment', 'urgent', 
+            'hot', 'num_failed_logins', 'logged_in', 'num_compromised', 'root_shell',
+            'su_attempted', 'num_root', 'num_file_creations', 'num_shells', 
+            'num_access_files', 'num_outbound_cmds', 'is_host_login', 'is_guest_login',
+            'count', 'srv_count', 'serror_rate', 'srv_serror_rate', 'rerror_rate',
+            'srv_rerror_rate', 'same_srv_rate', 'diff_srv_rate', 'srv_diff_host_rate',
+            'dst_host_count', 'dst_host_srv_count', 'dst_host_same_srv_rate',
+            'dst_host_diff_srv_rate', 'dst_host_same_src_port_rate',
+            'dst_host_srv_diff_host_rate', 'dst_host_serror_rate',
+            'dst_host_srv_serror_rate', 'dst_host_rerror_rate',
+            'dst_host_srv_rerror_rate'
+        ]
+
+        # Work on a copy
         df_processed = df.copy()
-        
-        # Create binary target columns (these will be dropped later)
-        attack_types = {
-            'DoS': ['neptune', 'smurf', 'pod', 'teardrop', 'land', 'back', 'apache2', 'udpstorm', 'processtable', 'mailbomb'],
-            'Probe': ['ipsweep', 'nmap', 'portsweep', 'satan', 'mscan', 'saint'],
-            'R2L': ['guess_passwd', 'ftp_write', 'imap', 'phf', 'multihop', 'warezmaster', 'warezclient', 'spy', 'xsnoop', 'snmpguess', 'snmpgetattack', 'httptunnel', 'sendmail', 'named'],
-            'U2R': ['buffer_overflow', 'loadmodule', 'perl', 'rootkit', 'sqlattack', 'xterm', 'ps']
-        }
-        
-        # Create target columns
-        for attack_type in ['DoS', 'Probe', 'R2L', 'U2R']:
-            df_processed[attack_type] = 0
-            if 'label' in df_processed.columns:
-                df_processed[attack_type] = df_processed['label'].isin(attack_types[attack_type]).astype(int)
-        
-        # Create one-hot encoded features
-        encoded_features = pd.DataFrame(index=df_processed.index)
-        
-        # One-hot encode each categorical feature
-        for feature, values in categorical_values.items():
-            for value in values:
+
+        # Create binary encoded features for each categorical variable
+        encoded_features = {}
+        for feature, valid_values in categorical_values.items():
+            feature_encoded = pd.get_dummies(df_processed[feature], prefix=feature)
+            # Ensure all expected columns exist
+            for value in valid_values:
                 col_name = f"{feature}_{value}"
-                encoded_features[col_name] = (df_processed[feature] == value).astype(int)
-        
-        # Combine numeric and encoded categorical features
-        df_final = pd.DataFrame(index=df_processed.index)
-        
-        # Add numeric features
-        for col in base_numeric_features:
-            df_final[col] = df_processed[col]
-        
-        # Add binary target features
-        for col in ['DoS', 'Probe', 'R2L', 'U2R']:
-            df_final[col] = df_processed[col]
-        
+                if col_name not in feature_encoded:
+                    feature_encoded[col_name] = 0
+            # Keep only the expected columns in the right order
+            expected_cols = [f"{feature}_{value}" for value in valid_values]
+            encoded_features[feature] = feature_encoded[expected_cols]
+
+        # Create the final dataframe with numeric features
+        final_df = df_processed[numeric_features].copy()
+
         # Add encoded categorical features
-        for col in encoded_features.columns:
-            df_final[col] = encoded_features[col]
-        
+        for feature_encoded in encoded_features.values():
+            for col in feature_encoded.columns:
+                final_df[col] = feature_encoded[col]
+
         # Ensure we have exactly the features the model expects
-        df_final = df_final.reindex(columns=feature_names, fill_value=0)
+        if 'feature_names' in models:
+            final_df = final_df.reindex(columns=models['feature_names'], fill_value=0)
+
+        st.write("Number of features after preprocessing:", final_df.shape[1])
         
-        st.write("Number of features after preprocessing:", df_final.shape[1])
-        return df_final
-        
+        return final_df
+
     except Exception as e:
         st.error(f"Error processing file: {str(e)}")
         st.write("Please check your CSV file format.")
+        st.write("Expected columns:", numeric_features + ['protocol_type', 'service', 'flag'])
         return None
 
 # Load models first!
@@ -138,104 +117,106 @@ st.sidebar.info(f"""
 """)
 
 if models:
-    # Display expected feature info in an expander
-    with st.expander("📋 Feature Information"):
-        st.write("Required numeric features:")
-        numeric_features = [f for f in models['feature_names'] 
-                          if not any(x in f for x in ['protocol_type_', 'service_', 'flag_'])]
-        st.write(", ".join(numeric_features))
-        
-        st.write("\nAccepted categorical values:")
-        st.write("protocol_type:", [f.replace('protocol_type_', '') 
-                                  for f in models['feature_names'] if 'protocol_type_' in f])
-        st.write("service:", [f.replace('service_', '') 
-                            for f in models['feature_names'] if 'service_' in f])
-        st.write("flag:", [f.replace('flag_', '') 
-                         for f in models['feature_names'] if 'flag_' in f])
-
-    # File uploader
-    uploaded_file = st.file_uploader(
-        "Upload CSV file with network traffic data",
-        type="csv"
+    # Add a demo data option
+    data_option = st.radio(
+        "Choose data source:",
+        ["Upload CSV", "Use NSL-KDD Test Data"]
     )
 
-    if uploaded_file:
-        try:
-            # Load data from CSV
+    if data_option == "Upload CSV":
+        uploaded_file = st.file_uploader(
+            "Upload CSV file with network traffic data",
+            type="csv"
+        )
+        if uploaded_file:
             df = pd.read_csv(uploaded_file)
-            st.success(f"Successfully loaded {len(df)} records!")
-            
-            # Data Preview
-            with st.expander("Preview Raw Data"):
-                st.dataframe(df.head())
-                st.info(f"Dataset Shape: {df.shape}")
-            
-            # Analyze data when button is clicked
-            if st.button("Analyze Network Traffic"):
-                with st.spinner("Processing data..."):
-                    df_processed = preprocess_data(df, models)
+    else:
+        # Load NSL-KDD test data
+        test_url = 'https://raw.githubusercontent.com/merteroglu/NSL-KDD-Network-Instrusion-Detection/master/NSL_KDD_Test.csv'
+        col_names = ["duration","protocol_type","service","flag","src_bytes",
+                    "dst_bytes","land","wrong_fragment","urgent","hot","num_failed_logins",
+                    "logged_in","num_compromised","root_shell","su_attempted","num_root",
+                    "num_file_creations","num_shells","num_access_files","num_outbound_cmds",
+                    "is_host_login","is_guest_login","count","srv_count","serror_rate",
+                    "srv_serror_rate","rerror_rate","srv_rerror_rate","same_srv_rate",
+                    "diff_srv_rate","srv_diff_host_rate","dst_host_count","dst_host_srv_count",
+                    "dst_host_same_srv_rate","dst_host_diff_srv_rate","dst_host_same_src_port_rate",
+                    "dst_host_srv_diff_host_rate","dst_host_serror_rate","dst_host_srv_serror_rate",
+                    "dst_host_rerror_rate","dst_host_srv_rerror_rate","label"]
+        df = pd.read_csv(test_url, header=None, names=col_names)
+        st.success("Loaded NSL-KDD test dataset!")
+
+    if 'df' in locals():
+        st.success(f"Successfully loaded {len(df)} records!")
+        
+        # Data Preview
+        with st.expander("Preview Raw Data"):
+            st.dataframe(df.head())
+            st.info(f"Dataset Shape: {df.shape}")
+        
+        # Analyze data when button is clicked
+        if st.button("Analyze Network Traffic"):
+            with st.spinner("Processing data..."):
+                df_processed = preprocess_data(df, models)
+                
+                if df_processed is not None:
+                    # Get predictions for each attack type
+                    results = {}
+                    for attack_type in ['DoS', 'Probe', 'R2L', 'U2R']:
+                        scaler = models['scalers'][attack_type]
+                        X_scaled = scaler.transform(df_processed)
+                        
+                        ensemble_pred = models['ensemble_models'][attack_type].predict_proba(X_scaled)
+                        results[attack_type] = {
+                            'probability': ensemble_pred[:, 1],
+                            'prediction': ensemble_pred[:, 1] > 0.5
+                        }
                     
-                    if df_processed is not None:
-                        # Get predictions for each attack type
-                        results = {}
-                        for attack_type in ['DoS', 'Probe', 'R2L', 'U2R']:
-                            scaler = models['scalers'][attack_type]
-                            X_scaled = scaler.transform(df_processed)
-                            
-                            ensemble_pred = models['ensemble_models'][attack_type].predict_proba(X_scaled)
-                            results[attack_type] = {
-                                'probability': ensemble_pred[:, 1],
-                                'prediction': ensemble_pred[:, 1] > 0.5
-                            }
-                        
-                        # Display overall analysis results
-                        st.subheader("Analysis Results")
-                        
-                        cols = st.columns(4)
-                        for attack_type, col in zip(results.keys(), cols):
-                            detected = results[attack_type]['prediction'].sum()
-                            with col:
-                                st.metric(
-                                    f"{attack_type} Attacks",
-                                    f"{detected}",
-                                    f"{(detected/len(df)*100):.2f}%"
-                                )
-                        
-                        # Detailed analysis with histograms and high-risk connections
-                        for attack_type in results:
-                            with st.expander(f"{attack_type} Analysis"):
-                                fig = px.histogram(
-                                    x=results[attack_type]['probability'],
-                                    title=f"{attack_type} Attack Probability Distribution"
-                                )
-                                st.plotly_chart(fig)
-                                
-                                high_risk = np.where(results[attack_type]['probability'] > 0.8)[0]
-                                if len(high_risk) > 0:
-                                    st.warning(f"Found {len(high_risk)} high-risk connections!")
-                                    st.dataframe(df.iloc[high_risk])
-                        
-                        # Option to download analysis results
-                        if st.button("Download Results"):
-                            for attack_type in results:
-                                df[f'{attack_type}_probability'] = results[attack_type]['probability']
-                                df[f'{attack_type}_prediction'] = results[attack_type]['prediction']
-                            
-                            csv = df.to_csv(index=False)
-                            st.download_button(
-                                "Download Complete Analysis",
-                                csv,
-                                f"nids_analysis_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-                                "text/csv",
-                                key='download-csv'
+                    # Display results
+                    st.subheader("Analysis Results")
+                    
+                    cols = st.columns(4)
+                    for attack_type, col in zip(results.keys(), cols):
+                        detected = results[attack_type]['prediction'].sum()
+                        with col:
+                            st.metric(
+                                f"{attack_type} Attacks",
+                                f"{detected}",
+                                f"{(detected/len(df)*100):.2f}%"
                             )
-        except Exception as e:
-            st.error(f"Error processing file: {str(e)}")
-            st.info("Please check your CSV file format.")
+                    
+                    # Detailed analysis
+                    for attack_type in results:
+                        with st.expander(f"{attack_type} Analysis"):
+                            fig = px.histogram(
+                                x=results[attack_type]['probability'],
+                                title=f"{attack_type} Attack Probability Distribution"
+                            )
+                            st.plotly_chart(fig)
+                            
+                            high_risk = np.where(results[attack_type]['probability'] > 0.8)[0]
+                            if len(high_risk) > 0:
+                                st.warning(f"Found {len(high_risk)} high-risk connections!")
+                                st.dataframe(df.iloc[high_risk])
+                    
+                    # Download results
+                    if st.button("Download Results"):
+                        for attack_type in results:
+                            df[f'{attack_type}_probability'] = results[attack_type]['probability']
+                            df[f'{attack_type}_prediction'] = results[attack_type]['prediction']
+                        
+                        csv = df.to_csv(index=False)
+                        st.download_button(
+                            "Download Complete Analysis",
+                            csv,
+                            f"nids_analysis_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                            "text/csv",
+                            key='download-csv'
+                        )
 else:
     st.error("⚠️ Could not load models. Please ensure 'all_models.pkl' exists in the app directory.")
 
-# Sidebar Footer: Model performance
+# Sidebar Footer
 st.sidebar.markdown("---")
 st.sidebar.markdown("""
 ### Model Performance
