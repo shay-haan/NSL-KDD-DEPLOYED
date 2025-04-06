@@ -200,7 +200,7 @@ if models:
             st.error(f"Error processing file: {str(e)}")
             st.info("Please check your CSV file format.")
 else:
-    st.error(⚠️ Could not load models. Please ensure 'all_models.pkl' exists in the app directory.")
+    st.error("⚠️ Could not load models. Please ensure 'all_models.pkl' exists in the app directory.")
 
 # Sidebar Footer: Model performance
 st.sidebar.markdown("---")
