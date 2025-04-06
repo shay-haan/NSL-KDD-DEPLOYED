@@ -1,4 +1,4 @@
-# Let's modify the preprocessing part of app.py
+# app.py
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -6,10 +6,27 @@ import pickle
 import plotly.express as px
 from datetime import datetime
 
-# ... (keep the page config and other imports)
+# Page config
+st.set_page_config(
+    page_title="Network IDS Research Project",
+    page_icon="🔒",
+    layout="wide"
+)
+
+# Main title
+st.title("🔒 Network Intrusion Detection System")
+st.markdown("""
+### Research Project - Final Semester
+This system uses ensemble machine learning to detect network attacks:
+- Denial of Service (DoS)
+- Probe Attacks
+- Remote to Local (R2L)
+- User to Root (U2R)
+""")
 
 @st.cache_resource
 def load_models():
+    """Load all saved models"""
     try:
         with open('all_models.pkl', 'rb') as f:
             models = pickle.load(f)
@@ -20,9 +37,7 @@ def load_models():
         return None
 
 def preprocess_data(df, models):
-    """
-    Preprocess data exactly as we did during training
-    """
+    """Preprocess data exactly as we did during training"""
     try:
         # Get the exact feature names from our models
         feature_names = models['feature_names']
@@ -65,7 +80,15 @@ def preprocess_data(df, models):
         st.write("Expected features:", feature_names)
         return None
 
-# ... (keep the main title and model loading)
+# Load models first!
+models = load_models()
+
+# Session info in sidebar
+st.sidebar.info(f"""
+    Session Info:
+    - Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} UTC
+    - User: shay-haan
+""")
 
 if models:
     # Display expected features
@@ -171,5 +194,17 @@ if models:
         except Exception as e:
             st.error(f"Error processing file: {str(e)}")
             st.info("Please check your CSV file format.")
+else:
+    st.error("⚠️ Could not load models. Please ensure 'all_models.pkl' exists in the app directory.")
 
-# ... (keep the sidebar and footer)
+# Footer with model performance
+st.sidebar.markdown("---")
+st.sidebar.markdown("""
+### Model Performance
+- DoS: 99.998%
+- Probe: 100%
+- R2L: 99.999%
+- U2R: 100%
+
+*Based on test dataset evaluation*
+""")
