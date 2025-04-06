@@ -45,69 +45,53 @@ def preprocess_data(df, models):
         # Work on a copy of the dataframe
         df_processed = df.copy()
         
-        # Define base numeric features (these are the original numeric columns)
-        base_numeric_features = [
-            "duration", "src_bytes", "dst_bytes", "land", "wrong_fragment", 
-            "urgent", "hot", "num_failed_logins", "logged_in", "num_compromised",
-            "root_shell", "su_attempted", "num_root", "num_file_creations",
-            "num_shells", "num_access_files", "num_outbound_cmds", "is_host_login",
-            "is_guest_login", "count", "srv_count", "serror_rate", "srv_serror_rate",
-            "rerror_rate", "srv_rerror_rate", "same_srv_rate", "diff_srv_rate",
-            "srv_diff_host_rate", "dst_host_count", "dst_host_srv_count",
-            "dst_host_same_srv_rate", "dst_host_diff_srv_rate", 
-            "dst_host_same_src_port_rate", "dst_host_srv_diff_host_rate",
-            "dst_host_serror_rate", "dst_host_srv_serror_rate",
-            "dst_host_rerror_rate", "dst_host_srv_rerror_rate"
-        ]
+        # Extract categories from the training feature names
+        protocol_types = [col.replace('protocol_type_', '') for col in feature_names if 'protocol_type_' in col]
+        services = [col.replace('service_', '') for col in feature_names if 'service_' in col]
+        flags = [col.replace('flag_', '') for col in feature_names if 'flag_' in col]
         
-        # Keep only numeric features initially
-        numeric_df = df_processed[base_numeric_features].copy()
+        # Create dummy variables only for the categories seen during training
+        protocol_dummies = pd.get_dummies(df_processed['protocol_type'], prefix='protocol_type')
+        service_dummies = pd.get_dummies(df_processed['service'], prefix='service')
+        flag_dummies = pd.get_dummies(df_processed['flag'], prefix='flag')
         
-        # Add binary target columns (initialized to 0)
-        for target in ['DoS', 'Probe', 'R2L', 'U2R']:
-            numeric_df[target] = 0
-            
-        # Now handle categorical features
-        # IMPORTANT: We only use the categories that were in the training data
-        categorical_features = {
-            'protocol_type': ['icmp', 'tcp', 'udp'],
-            'service': [
-                'IRC', 'X11', 'Z39_50', 'aol', 'auth', 'bgp', 'courier', 'csnet_ns', 
-                'ctf', 'daytime', 'discard', 'domain', 'domain_u', 'echo', 'eco_i', 
-                'ecr_i', 'efs', 'exec', 'finger', 'ftp', 'ftp_data', 'gopher', 'harvest',
-                'hostnames', 'http', 'http_2784', 'http_443', 'http_8001', 'imap4', 
-                'ISO_tsap', 'klogin', 'kshell', 'ldap', 'link', 'login', 'mtp', 'name',
-                'netbios_dgm', 'netbios_ns', 'netbios_ssn', 'netstat', 'nnsp', 'nntp',
-                'ntp_u', 'other', 'pop_2', 'pop_3', 'printer', 'private', 'remote_job',
-                'rje', 'shell', 'smtp', 'sql_net', 'ssh', 'sunrpc', 'supdup', 'systat',
-                'telnet', 'tftp_u', 'tim_i', 'time', 'urh_i', 'urp_i', 'uucp', 
-                'uucp_path', 'vmnet', 'whois'
-            ],
-            'flag': [
-                'OTH', 'REJ', 'RSTO', 'RSTOS0', 'RSTR', 'S0', 'S1', 'S2', 'S3', 
-                'SF', 'SH'
-            ]
-        }
+        # Retain only the desired columns (if a column is missing, add it later with zeros)
+        protocol_cols = ['protocol_type_' + p for p in protocol_types]
+        service_cols = ['service_' + s for s in services]
+        flag_cols = ['flag_' + f for f in flags]
         
-        # Create dummy variables for each categorical feature
-        for feature, categories in categorical_features.items():
-            # Create dummy columns for each known category
-            for category in categories:
-                col_name = f"{feature}_{category}"
-                numeric_df[col_name] = (df_processed[feature] == category).astype(int)
+        protocol_dummies = protocol_dummies.reindex(columns=protocol_cols, fill_value=0)
+        service_dummies = service_dummies.reindex(columns=service_cols, fill_value=0)
+        flag_dummies = flag_dummies.reindex(columns=flag_cols, fill_value=0)
         
-        # Ensure we have exactly the features the model expects
-        final_features = numeric_df.reindex(columns=feature_names, fill_value=0)
+        # Drop original categorical columns
+        df_processed = df_processed.drop(['protocol_type', 'service', 'flag'], axis=1)
         
-        st.write("Number of features after preprocessing:", len(final_features.columns))
-        st.write("Features match expected:", set(final_features.columns) == set(feature_names))
+        # Concatenate dummy variables with the dataset
+        df_processed = pd.concat([df_processed, protocol_dummies, service_dummies, flag_dummies], axis=1)
         
-        return final_features
+        # Ensure all required columns exist; if missing, add with zeros
+        for col in feature_names:
+            if col not in df_processed.columns:
+                df_processed[col] = 0
+        
+        # Select only the required features in the correct order
+        df_processed = df_processed[feature_names]
+        
+        st.write("Expected feature names:", feature_names)
+        st.write("Processed feature names:", df_processed.columns.tolist())
+        st.write("Number of features after preprocessing:", df_processed.shape[1])
+        
+        # Check if the number of features matches
+        if df_processed.shape[1] != len(feature_names):
+            raise ValueError(f"Feature shape mismatch, expected: {len(feature_names)}, got {df_processed.shape[1]}")
+        
+        return df_processed
         
     except Exception as e:
-        st.error(f"Error processing file: {str(e)}")
+        st.error(f"Preprocessing error: {str(e)}")
         st.write("Columns in input data:", df.columns.tolist())
-        st.write("Number of columns in input:", len(df.columns))
+        st.write("Expected features:", feature_names)
         return None
 
 # Load models first!
