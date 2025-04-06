@@ -1,4 +1,4 @@
-# app.py
+# Let's modify the preprocessing part of app.py
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -6,12 +6,7 @@ import pickle
 import plotly.express as px
 from datetime import datetime
 
-# Page config
-st.set_page_config(
-    page_title="Network IDS Research Project",
-    page_icon="🔒",
-    layout="wide"
-)
+# ... (keep the page config and other imports)
 
 @st.cache_resource
 def load_models():
@@ -24,14 +19,35 @@ def load_models():
         st.error(f"Error loading models: {str(e)}")
         return None
 
-def preprocess_data(df, feature_names):
-    """Preprocess the input data to match training format"""
+def preprocess_data(df, models):
+    """
+    Preprocess data exactly as we did during training
+    """
     try:
-        # Create dummy variables for categorical features
-        categorical_features = ['protocol_type', 'service', 'flag']
-        df_processed = pd.get_dummies(df, columns=categorical_features, prefix=categorical_features)
+        # Get the exact feature names from our models
+        feature_names = models['feature_names']
+        st.write("Number of features expected:", len(feature_names))
         
-        # Ensure all required columns exist
+        # Create dummy variables with the exact same categories as training
+        df_processed = df.copy()
+        
+        # Get unique values for categorical features from the model's feature names
+        protocol_types = [col.replace('protocol_type_', '') for col in feature_names if 'protocol_type_' in col]
+        services = [col.replace('service_', '') for col in feature_names if 'service_' in col]
+        flags = [col.replace('flag_', '') for col in feature_names if 'flag_' in col]
+        
+        # Create dummy variables only for the categories we had in training
+        protocol_dummies = pd.get_dummies(df_processed['protocol_type'], prefix='protocol_type')[['protocol_type_' + p for p in protocol_types]]
+        service_dummies = pd.get_dummies(df_processed['service'], prefix='service')[['service_' + s for s in services]]
+        flag_dummies = pd.get_dummies(df_processed['flag'], prefix='flag')[['flag_' + f for f in flags]]
+        
+        # Drop original categorical columns
+        df_processed = df_processed.drop(['protocol_type', 'service', 'flag'], axis=1)
+        
+        # Add dummy variables
+        df_processed = pd.concat([df_processed, protocol_dummies, service_dummies, flag_dummies], axis=1)
+        
+        # Ensure all required columns exist and in correct order
         for col in feature_names:
             if col not in df_processed.columns:
                 df_processed[col] = 0
@@ -39,45 +55,33 @@ def preprocess_data(df, feature_names):
         # Select only the required features in the correct order
         df_processed = df_processed[feature_names]
         
+        st.write("Number of features after preprocessing:", df_processed.shape[1])
+        
         return df_processed
+        
     except Exception as e:
-        st.error(f"Error in preprocessing: {str(e)}")
+        st.error(f"Preprocessing error: {str(e)}")
+        st.write("Columns in input data:", df.columns.tolist())
+        st.write("Expected features:", feature_names)
         return None
 
-# Main title and info
-st.title("🔒 Network Intrusion Detection System")
-st.markdown("""
-### Research Project - Final Semester
-This system uses ensemble machine learning to detect network attacks:
-- Denial of Service (DoS)
-- Probe Attacks
-- Remote to Local (R2L)
-- User to Root (U2R)
-""")
-
-# Load models
-models = load_models()
+# ... (keep the main title and model loading)
 
 if models:
-    # Show feature requirements
-    with st.expander("📋 Required Features Information"):
-        st.write("Your CSV file must contain the following features:")
-        required_features = [
-            'duration', 'protocol_type', 'service', 'flag', 'src_bytes', 
-            'dst_bytes', 'land', 'wrong_fragment', 'urgent', 'hot', 
-            'num_failed_logins', 'logged_in', 'num_compromised', 
-            'root_shell', 'su_attempted', 'num_root', 'num_file_creations',
-            'num_shells', 'num_access_files', 'num_outbound_cmds',
-            'is_host_login', 'is_guest_login', 'count', 'srv_count',
-            'serror_rate', 'srv_serror_rate', 'rerror_rate', 'srv_rerror_rate',
-            'same_srv_rate', 'diff_srv_rate', 'srv_diff_host_rate',
-            'dst_host_count', 'dst_host_srv_count', 'dst_host_same_srv_rate',
-            'dst_host_diff_srv_rate', 'dst_host_same_src_port_rate',
-            'dst_host_srv_diff_host_rate', 'dst_host_serror_rate',
-            'dst_host_srv_serror_rate', 'dst_host_rerror_rate',
-            'dst_host_srv_rerror_rate'
-        ]
-        st.write(", ".join(required_features))
+    # Display expected features
+    with st.expander("📋 Feature Information"):
+        st.write("Required numeric features:")
+        numeric_features = [f for f in models['feature_names'] 
+                          if not any(x in f for x in ['protocol_type_', 'service_', 'flag_'])]
+        st.write(", ".join(numeric_features))
+        
+        st.write("\nAccepted categorical values:")
+        st.write("protocol_type:", [f.replace('protocol_type_', '') 
+                                  for f in models['feature_names'] if 'protocol_type_' in f])
+        st.write("service:", [f.replace('service_', '') 
+                            for f in models['feature_names'] if 'service_' in f])
+        st.write("flag:", [f.replace('flag_', '') 
+                         for f in models['feature_names'] if 'flag_' in f])
 
     # File uploader
     uploaded_file = st.file_uploader(
@@ -96,17 +100,11 @@ if models:
                 st.dataframe(df.head())
                 st.info(f"Dataset Shape: {df.shape}")
             
-            # Verify required features
-            missing_features = [f for f in required_features if f not in df.columns]
-            if missing_features:
-                st.error(f"Missing required features: {', '.join(missing_features)}")
-                st.stop()
-            
             # Process data button
             if st.button("Analyze Network Traffic"):
                 with st.spinner("Processing data..."):
                     # Preprocess data
-                    df_processed = preprocess_data(df, models['feature_names'])
+                    df_processed = preprocess_data(df, models)
                     
                     if df_processed is not None:
                         # Get predictions for each attack type
@@ -118,13 +116,9 @@ if models:
                             
                             # Get predictions
                             ensemble_pred = models['ensemble_models'][attack_type].predict_proba(X_scaled)
-                            xgb_pred = models['xgboost_models'][attack_type].predict_proba(X_scaled)
-                            lr_pred = models['logistic_models'][attack_type].predict_proba(X_scaled)
-                            
                             results[attack_type] = {
-                                'Ensemble': ensemble_pred[:, 1],
-                                'XGBoost': xgb_pred[:, 1],
-                                'Logistic': lr_pred[:, 1]
+                                'probability': ensemble_pred[:, 1],
+                                'prediction': ensemble_pred[:, 1] > 0.5
                             }
                         
                         # Display results
@@ -133,7 +127,7 @@ if models:
                         # Summary metrics
                         cols = st.columns(4)
                         for attack_type, col in zip(results.keys(), cols):
-                            detected = (results[attack_type]['Ensemble'] > 0.5).sum()
+                            detected = results[attack_type]['prediction'].sum()
                             with col:
                                 st.metric(
                                     f"{attack_type} Attacks",
@@ -146,22 +140,23 @@ if models:
                             with st.expander(f"{attack_type} Analysis"):
                                 # Distribution plot
                                 fig = px.histogram(
-                                    pd.DataFrame(results[attack_type]),
+                                    x=results[attack_type]['probability'],
                                     title=f"{attack_type} Attack Probability Distribution"
                                 )
                                 st.plotly_chart(fig)
                                 
                                 # High risk connections
-                                high_risk = np.where(results[attack_type]['Ensemble'] > 0.8)[0]
+                                high_risk = np.where(results[attack_type]['probability'] > 0.8)[0]
                                 if len(high_risk) > 0:
                                     st.warning(f"Found {len(high_risk)} high-risk connections!")
                                     st.dataframe(df.iloc[high_risk])
-                        
+
                         # Download results
                         if st.button("Download Results"):
                             # Add predictions to original dataframe
                             for attack_type in results:
-                                df[f'{attack_type}_probability'] = results[attack_type]['Ensemble']
+                                df[f'{attack_type}_probability'] = results[attack_type]['probability']
+                                df[f'{attack_type}_prediction'] = results[attack_type]['prediction']
                             
                             # Convert to CSV
                             csv = df.to_csv(index=False)
@@ -175,22 +170,6 @@ if models:
 
         except Exception as e:
             st.error(f"Error processing file: {str(e)}")
-            st.info("Please check your CSV file format and required features.")
+            st.info("Please check your CSV file format.")
 
-# Sidebar info
-st.sidebar.info(f"""
-    Session Info:
-    - Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} UTC
-    - User: shay-haan
-""")
-
-st.sidebar.markdown("---")
-st.sidebar.markdown("""
-### Model Performance
-- DoS: 99.998%
-- Probe: 100%
-- R2L: 99.999%
-- U2R: 100%
-
-*Based on test dataset evaluation*
-""")
+# ... (keep the sidebar and footer)
