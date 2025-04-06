@@ -45,17 +45,34 @@ def preprocess_data(df, models):
         # Work on a copy of the dataframe
         df_processed = df.copy()
         
-        # Drop label column from features if it exists (it's not used for prediction)
-        if 'label' in df_processed.columns:
-            df_processed.drop('label', axis=1, inplace=True)
-            
-        # Create binary target columns from label (these will be dropped later)
+        # Create initial numeric features (excluding target columns and categorical columns)
+        numeric_base_features = [
+            "duration", "src_bytes", "dst_bytes", "land", "wrong_fragment", 
+            "urgent", "hot", "num_failed_logins", "logged_in", "num_compromised",
+            "root_shell", "su_attempted", "num_root", "num_file_creations",
+            "num_shells", "num_access_files", "num_outbound_cmds", "is_host_login",
+            "is_guest_login", "count", "srv_count", "serror_rate", "srv_serror_rate",
+            "rerror_rate", "srv_rerror_rate", "same_srv_rate", "diff_srv_rate",
+            "srv_diff_host_rate", "dst_host_count", "dst_host_srv_count",
+            "dst_host_same_srv_rate", "dst_host_diff_srv_rate", 
+            "dst_host_same_src_port_rate", "dst_host_srv_diff_host_rate",
+            "dst_host_serror_rate", "dst_host_srv_serror_rate",
+            "dst_host_rerror_rate", "dst_host_srv_rerror_rate"
+        ]
+        
+        # Create binary target columns from label
         attack_types = {
             'DoS': ['neptune', 'smurf', 'pod', 'teardrop', 'land', 'back', 'apache2', 'udpstorm', 'processtable', 'mailbomb'],
             'Probe': ['ipsweep', 'nmap', 'portsweep', 'satan', 'mscan', 'saint'],
             'R2L': ['guess_passwd', 'ftp_write', 'imap', 'phf', 'multihop', 'warezmaster', 'warezclient', 'spy', 'xsnoop', 'snmpguess', 'snmpgetattack', 'httptunnel', 'sendmail', 'named'],
             'U2R': ['buffer_overflow', 'loadmodule', 'perl', 'rootkit', 'sqlattack', 'xterm', 'ps']
         }
+        
+        # Create target columns (initialize with zeros)
+        for attack_type in ['DoS', 'Probe', 'R2L', 'U2R']:
+            df_processed[attack_type] = 0
+            if 'label' in df_processed.columns:
+                df_processed[attack_type] = df_processed['label'].isin(attack_types[attack_type]).astype(int)
         
         # Extract categorical columns
         categorical_columns = ['protocol_type', 'service', 'flag']
@@ -69,7 +86,7 @@ def preprocess_data(df, models):
                      for x in feature_names if x.startswith('flag_'))))
         
         # Create dummy variables with fixed categories
-        all_dummies = pd.DataFrame()
+        all_dummies = pd.DataFrame(index=df_processed.index)
         for col, categories, prefix in [
             ('protocol_type', protocol_types, 'protocol_type_'),
             ('service', services, 'service_'),
@@ -90,25 +107,23 @@ def preprocess_data(df, models):
             
             all_dummies = pd.concat([all_dummies, dummies], axis=1)
         
-        # Drop original categorical columns
-        df_processed = df_processed.drop(categorical_columns, axis=1)
+        # First, create a DataFrame with numeric features
+        numeric_df = df_processed[numeric_base_features + ['DoS', 'Probe', 'R2L', 'U2R']]
         
-        # Add the dummy variables
-        df_processed = pd.concat([df_processed, all_dummies], axis=1)
+        # Combine numeric and categorical features
+        final_df = pd.concat([numeric_df, all_dummies], axis=1)
         
-        # Keep only numeric features that are in the feature_names list
-        numeric_features = [col for col in feature_names 
-                          if not any(x in col for x in ['protocol_type_', 'service_', 'flag_'])]
-        
-        # Create final dataframe with exact features in exact order
-        final_features = df_processed[feature_names]
+        # Ensure we have all required features in the correct order
+        final_features = final_df.reindex(columns=feature_names, fill_value=0)
         
         st.write("Number of features after preprocessing:", len(final_features.columns))
+        st.write("Features match expected:", set(final_features.columns) == set(feature_names))
         
         return final_features
         
     except Exception as e:
         st.error(f"Error processing file: {str(e)}")
+        st.write("Columns in input data:", df.columns.tolist())
         st.write("Please check your CSV file format.")
         return None
 
