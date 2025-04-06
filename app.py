@@ -38,72 +38,54 @@ def load_models():
 def preprocess_data(df, models):
     """Preprocess data exactly as we did during training"""
     try:
-        # Known categorical values from training
-        categorical_values = {
-            'protocol_type': ['tcp', 'udp', 'icmp'],
-            'service': [
-                'http', 'private', 'domain_u', 'smtp', 'ftp_data', 'eco_i', 'other', 'auth', 
-                'telnet', 'ftp', 'ecr_i', 'time', 'domain', 'ssh', 'IRC', 'remote_job', 'name', 
-                'whois', 'csnet_ns', 'daytime', 'netbios_dgm', 'link', 'systat', 'netbios_ns', 
-                'mtp', 'finger', 'supdup', 'uucp_path', 'pop_3', 'netbios_ssn', 'sunrpc', 'urp_i', 
-                'pm_dump', 'pop_2', 'efs', 'courier', 'uucp', 'klogin', 'kshell', 'echo', 'shell', 
-                'sql_net', 'nntp', 'imap4', 'iso_tsap', 'hostnames', 'exec', 'ntp_u', 'discard', 
-                'X11', 'login', 'printer', 'tim_i', 'gopher', 'ldap', 'bgp', 'vmnet', 'ctf', 'rje'
-            ],
-            'flag': ['SF', 'S1', 'REJ', 'S2', 'S0', 'S3', 'RSTO', 'RSTR', 'RSTOS0', 'OTH', 'SH']
-        }
-
-        # Base numeric features
-        numeric_features = [
-            'duration', 'src_bytes', 'dst_bytes', 'land', 'wrong_fragment', 'urgent', 
-            'hot', 'num_failed_logins', 'logged_in', 'num_compromised', 'root_shell',
-            'su_attempted', 'num_root', 'num_file_creations', 'num_shells', 
-            'num_access_files', 'num_outbound_cmds', 'is_host_login', 'is_guest_login',
-            'count', 'srv_count', 'serror_rate', 'srv_serror_rate', 'rerror_rate',
-            'srv_rerror_rate', 'same_srv_rate', 'diff_srv_rate', 'srv_diff_host_rate',
-            'dst_host_count', 'dst_host_srv_count', 'dst_host_same_srv_rate',
-            'dst_host_diff_srv_rate', 'dst_host_same_src_port_rate',
-            'dst_host_srv_diff_host_rate', 'dst_host_serror_rate',
-            'dst_host_srv_serror_rate', 'dst_host_rerror_rate',
-            'dst_host_srv_rerror_rate'
-        ]
-
-        # Work on a copy
-        df_processed = df.copy()
-
-        # Create binary encoded features for each categorical variable
-        encoded_features = {}
-        for feature, valid_values in categorical_values.items():
-            feature_encoded = pd.get_dummies(df_processed[feature], prefix=feature)
-            # Ensure all expected columns exist
-            for value in valid_values:
-                col_name = f"{feature}_{value}"
-                if col_name not in feature_encoded:
-                    feature_encoded[col_name] = 0
-            # Keep only the expected columns in the right order
-            expected_cols = [f"{feature}_{value}" for value in valid_values]
-            encoded_features[feature] = feature_encoded[expected_cols]
-
-        # Create the final dataframe with numeric features
-        final_df = df_processed[numeric_features].copy()
-
-        # Add encoded categorical features
-        for feature_encoded in encoded_features.values():
-            for col in feature_encoded.columns:
-                final_df[col] = feature_encoded[col]
-
-        # Ensure we have exactly the features the model expects
-        if 'feature_names' in models:
-            final_df = final_df.reindex(columns=models['feature_names'], fill_value=0)
-
-        st.write("Number of features after preprocessing:", final_df.shape[1])
+        # Get the exact feature names from our models
+        feature_names = models['feature_names']
+        st.write("Number of features expected:", len(feature_names))
         
-        return final_df
-
+        # Work on a copy of the dataframe
+        df_processed = df.copy()
+        
+        # Separate numeric and categorical features from feature_names
+        numeric_features = []
+        categorical_features = {'protocol_type': [], 'service': [], 'flag': []}
+        
+        for feature in feature_names:
+            if any(feature.startswith(f"{cat}_") for cat in categorical_features.keys()):
+                for cat in categorical_features:
+                    if feature.startswith(f"{cat}_"):
+                        categorical_features[cat].append(feature.replace(f"{cat}_", ""))
+                        break
+            else:
+                numeric_features.append(feature)
+        
+        # Create dummy variables for categorical features
+        for cat_feature, values in categorical_features.items():
+            # Create dummy variables
+            dummies = pd.get_dummies(df_processed[cat_feature], prefix=cat_feature)
+            
+            # Add missing columns with zeros
+            for value in values:
+                col_name = f"{cat_feature}_{value}"
+                if col_name not in dummies.columns:
+                    dummies[col_name] = 0
+            
+            # Keep only the columns we expect
+            expected_cols = [f"{cat_feature}_{value}" for value in values]
+            dummies = dummies[expected_cols]
+            
+            # Add to processed dataframe
+            for col in dummies.columns:
+                df_processed[col] = dummies[col]
+        
+        # Select only the features we need in the correct order
+        df_processed = df_processed[feature_names]
+        
+        st.write("Number of features after preprocessing:", df_processed.shape[1])
+        return df_processed
+        
     except Exception as e:
         st.error(f"Error processing file: {str(e)}")
         st.write("Please check your CSV file format.")
-        st.write("Expected columns:", numeric_features + ['protocol_type', 'service', 'flag'])
         return None
 
 # Load models first!
