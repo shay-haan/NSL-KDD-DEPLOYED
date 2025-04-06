@@ -213,11 +213,10 @@ if models:
 else:
     st.error("⚠️ Could not load models. Please ensure 'all_models.pkl' exists in the app directory.")
 
-# Sidebar
 st.sidebar.info(f"""
 Session Info:
 - Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} UTC
-- User: {st.experimental_user.email if hasattr(st, 'experimental_user') else 'Guest'}
+- User: shay-haan
 """)
 
 st.sidebar.markdown("---")
