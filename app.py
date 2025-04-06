@@ -42,56 +42,89 @@ def preprocess_data(df, models):
         feature_names = models['feature_names']
         st.write("Number of features expected:", len(feature_names))
         
+        # Define the base numeric features
+        base_numeric_features = [
+            "duration", "src_bytes", "dst_bytes", "land", "wrong_fragment", 
+            "urgent", "hot", "num_failed_logins", "logged_in", "num_compromised",
+            "root_shell", "su_attempted", "num_root", "num_file_creations",
+            "num_shells", "num_access_files", "num_outbound_cmds", "is_host_login",
+            "is_guest_login", "count", "srv_count", "serror_rate", "srv_serror_rate",
+            "rerror_rate", "srv_rerror_rate", "same_srv_rate", "diff_srv_rate",
+            "srv_diff_host_rate", "dst_host_count", "dst_host_srv_count",
+            "dst_host_same_srv_rate", "dst_host_diff_srv_rate", 
+            "dst_host_same_src_port_rate", "dst_host_srv_diff_host_rate",
+            "dst_host_serror_rate", "dst_host_srv_serror_rate",
+            "dst_host_rerror_rate", "dst_host_srv_rerror_rate"
+        ]
+        
+        # Known categorical values from training
+        categorical_values = {
+            'protocol_type': ['tcp', 'udp', 'icmp'],
+            'service': [
+                'http', 'private', 'domain_u', 'smtp', 'ftp_data', 'eco_i', 'other',
+                'auth', 'finger', 'domain', 'imap4', 'pop_3', 'telnet', 'Z39_50',
+                'uucp', 'courier', 'ftp', 'eco_j', 'systat', 'time', 'hostnames',
+                'exec', 'ntp_u', 'disk', 'ssh', 'sunrpc', 'csnet_ns', 'X11',
+                'shell', 'supdup', 'name', 'nntp', 'mtp', 'gopher', 'rje',
+                'printer', 'efs', 'daytime', 'ctf', 'link', 'login', 'IRC',
+                'netbios_dgm', 'pop_2', 'ldap', 'netbios_ns', 'netbios_ssn',
+                'sql_net', 'vmnet', 'bgp', 'tim_i', 'urp_i', 'whois', 'http_443',
+                'klogin', 'uucp_path', 'http_8001', 'urh_i', 'http_2784', 'tftp_u',
+                'harvest', 'aol', 'remote_job', 'kshell'
+            ],
+            'flag': ['SF', 'S1', 'REJ', 'S2', 'S0', 'S3', 'RSTO', 'RSTR', 'RSTOS0', 'OTH', 'SH']
+        }
+        
         # Work on a copy of the dataframe
         df_processed = df.copy()
         
-        # Extract categories from the training feature names
-        protocol_types = [col.replace('protocol_type_', '') for col in feature_names if 'protocol_type_' in col]
-        services = [col.replace('service_', '') for col in feature_names if 'service_' in col]
-        flags = [col.replace('flag_', '') for col in feature_names if 'flag_' in col]
+        # Create binary target columns (these will be dropped later)
+        attack_types = {
+            'DoS': ['neptune', 'smurf', 'pod', 'teardrop', 'land', 'back', 'apache2', 'udpstorm', 'processtable', 'mailbomb'],
+            'Probe': ['ipsweep', 'nmap', 'portsweep', 'satan', 'mscan', 'saint'],
+            'R2L': ['guess_passwd', 'ftp_write', 'imap', 'phf', 'multihop', 'warezmaster', 'warezclient', 'spy', 'xsnoop', 'snmpguess', 'snmpgetattack', 'httptunnel', 'sendmail', 'named'],
+            'U2R': ['buffer_overflow', 'loadmodule', 'perl', 'rootkit', 'sqlattack', 'xterm', 'ps']
+        }
         
-        # Create dummy variables only for the categories seen during training
-        protocol_dummies = pd.get_dummies(df_processed['protocol_type'], prefix='protocol_type')
-        service_dummies = pd.get_dummies(df_processed['service'], prefix='service')
-        flag_dummies = pd.get_dummies(df_processed['flag'], prefix='flag')
+        # Create target columns
+        for attack_type in ['DoS', 'Probe', 'R2L', 'U2R']:
+            df_processed[attack_type] = 0
+            if 'label' in df_processed.columns:
+                df_processed[attack_type] = df_processed['label'].isin(attack_types[attack_type]).astype(int)
         
-        # Retain only the desired columns (if a column is missing, add it later with zeros)
-        protocol_cols = ['protocol_type_' + p for p in protocol_types]
-        service_cols = ['service_' + s for s in services]
-        flag_cols = ['flag_' + f for f in flags]
+        # Create one-hot encoded features
+        encoded_features = pd.DataFrame(index=df_processed.index)
         
-        protocol_dummies = protocol_dummies.reindex(columns=protocol_cols, fill_value=0)
-        service_dummies = service_dummies.reindex(columns=service_cols, fill_value=0)
-        flag_dummies = flag_dummies.reindex(columns=flag_cols, fill_value=0)
+        # One-hot encode each categorical feature
+        for feature, values in categorical_values.items():
+            for value in values:
+                col_name = f"{feature}_{value}"
+                encoded_features[col_name] = (df_processed[feature] == value).astype(int)
         
-        # Drop original categorical columns
-        df_processed = df_processed.drop(['protocol_type', 'service', 'flag'], axis=1)
+        # Combine numeric and encoded categorical features
+        df_final = pd.DataFrame(index=df_processed.index)
         
-        # Concatenate dummy variables with the dataset
-        df_processed = pd.concat([df_processed, protocol_dummies, service_dummies, flag_dummies], axis=1)
+        # Add numeric features
+        for col in base_numeric_features:
+            df_final[col] = df_processed[col]
         
-        # Ensure all required columns exist; if missing, add with zeros
-        for col in feature_names:
-            if col not in df_processed.columns:
-                df_processed[col] = 0
+        # Add binary target features
+        for col in ['DoS', 'Probe', 'R2L', 'U2R']:
+            df_final[col] = df_processed[col]
         
-        # Select only the required features in the correct order
-        df_processed = df_processed[feature_names]
+        # Add encoded categorical features
+        for col in encoded_features.columns:
+            df_final[col] = encoded_features[col]
         
-        st.write("Expected feature names:", feature_names)
-        st.write("Processed feature names:", df_processed.columns.tolist())
-        st.write("Number of features after preprocessing:", df_processed.shape[1])
+        # Ensure we have exactly the features the model expects
+        df_final = df_final.reindex(columns=feature_names, fill_value=0)
         
-        # Check if the number of features matches
-        if df_processed.shape[1] != len(feature_names):
-            raise ValueError(f"Feature shape mismatch, expected: {len(feature_names)}, got {df_processed.shape[1]}")
-        
-        return df_processed
+        st.write("Number of features after preprocessing:", df_final.shape[1])
+        return df_final
         
     except Exception as e:
-        st.error(f"Preprocessing error: {str(e)}")
-        st.write("Columns in input data:", df.columns.tolist())
-        st.write("Expected features:", feature_names)
+        st.error(f"Error processing file: {str(e)}")
+        st.write("Please check your CSV file format.")
         return None
 
 # Load models first!
