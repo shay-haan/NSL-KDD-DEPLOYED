@@ -40,54 +40,69 @@ def preprocess_data(df, models):
     try:
         # Get the exact feature names from our models
         feature_names = models['feature_names']
-        st.write("Number of features expected:", len(feature_names))
         
         # Work on a copy of the dataframe
         df_processed = df.copy()
         
-        # Extract categories from the training feature names
-        protocol_types = [col.replace('protocol_type_', '') for col in feature_names if 'protocol_type_' in col]
-        services = [col.replace('service_', '') for col in feature_names if 'service_' in col]
-        flags = [col.replace('flag_', '') for col in feature_names if 'flag_' in col]
+        # First, verify we have all required numeric columns
+        numeric_features = [col for col in feature_names 
+                          if not any(x in col for x in ['protocol_type_', 'service_', 'flag_'])]
         
-        # Create dummy variables only for the categories seen during training
-        protocol_dummies = pd.get_dummies(df_processed['protocol_type'], prefix='protocol_type')
-        service_dummies = pd.get_dummies(df_processed['service'], prefix='service')
-        flag_dummies = pd.get_dummies(df_processed['flag'], prefix='flag')
+        # Check if all numeric features are present
+        missing_numeric = set(numeric_features) - set(df_processed.columns)
+        if missing_numeric:
+            raise ValueError(f"Missing numeric features: {missing_numeric}")
+            
+        # Extract categorical columns
+        categorical_columns = ['protocol_type', 'service', 'flag']
+        if not all(col in df_processed.columns for col in categorical_columns):
+            raise ValueError(f"Missing categorical columns. Required: {categorical_columns}")
+            
+        # Get the mapping dictionaries for categorical features
+        protocol_types = sorted(list(set(x.replace('protocol_type_', '') 
+                              for x in feature_names if x.startswith('protocol_type_'))))
+        services = sorted(list(set(x.replace('service_', '') 
+                        for x in feature_names if x.startswith('service_'))))
+        flags = sorted(list(set(x.replace('flag_', '') 
+                     for x in feature_names if x.startswith('flag_'))))
         
-        # Retain only the desired columns (if a column is missing, add it later with zeros)
-        protocol_cols = ['protocol_type_' + p for p in protocol_types]
-        service_cols = ['service_' + s for s in services]
-        flag_cols = ['flag_' + f for f in flags]
-        
-        protocol_dummies = protocol_dummies.reindex(columns=protocol_cols, fill_value=0)
-        service_dummies = service_dummies.reindex(columns=service_cols, fill_value=0)
-        flag_dummies = flag_dummies.reindex(columns=flag_cols, fill_value=0)
+        # Create dummy variables with fixed categories
+        for col, categories, prefix in [
+            ('protocol_type', protocol_types, 'protocol_type_'),
+            ('service', services, 'service_'),
+            ('flag', flags, 'flag_')
+        ]:
+            # Create dummies
+            dummies = pd.get_dummies(df_processed[col], prefix=prefix)
+            
+            # Ensure all expected categories exist
+            for cat in categories:
+                col_name = f"{prefix}{cat}"
+                if col_name not in dummies.columns:
+                    dummies[col_name] = 0
+                    
+            # Only keep the expected categories
+            expected_cols = [f"{prefix}{cat}" for cat in categories]
+            dummies = dummies[expected_cols]
+            
+            # Add to processed dataframe
+            df_processed = pd.concat([df_processed, dummies], axis=1)
         
         # Drop original categorical columns
-        df_processed = df_processed.drop(['protocol_type', 'service', 'flag'], axis=1)
-        
-        # Concatenate dummy variables with the dataset
-        df_processed = pd.concat([df_processed, protocol_dummies, service_dummies, flag_dummies], axis=1)
-        
-        # Ensure all required columns exist; if missing, add with zeros
-        for col in feature_names:
-            if col not in df_processed.columns:
-                df_processed[col] = 0
+        df_processed = df_processed.drop(categorical_columns, axis=1)
         
         # Select only the required features in the correct order
         df_processed = df_processed[feature_names]
         
-        st.write("Expected feature names:", feature_names)
-        st.write("Processed feature names:", df_processed.columns.tolist())
-        st.write("Number of features after preprocessing:", df_processed.shape[1])
+        st.write("Number of features after preprocessing:", len(feature_names))
+        st.write("Features in processed data:", len(df_processed.columns))
         
         return df_processed
         
     except Exception as e:
-        st.error(f"Preprocessing error: {str(e)}")
+        st.error(f"Error in preprocessing: {str(e)}")
         st.write("Columns in input data:", df.columns.tolist())
-        st.write("Expected features:", feature_names)
+        st.write("Number of columns in input:", len(df.columns))
         return None
 
 # Load models first!
