@@ -1,4 +1,3 @@
-# app.py
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -43,26 +42,35 @@ def preprocess_data(df, models):
         feature_names = models['feature_names']
         st.write("Number of features expected:", len(feature_names))
         
-        # Create dummy variables with the exact same categories as training
+        # Work on a copy of the dataframe
         df_processed = df.copy()
         
-        # Get unique values for categorical features from the model's feature names
+        # Extract categories from the training feature names
         protocol_types = [col.replace('protocol_type_', '') for col in feature_names if 'protocol_type_' in col]
         services = [col.replace('service_', '') for col in feature_names if 'service_' in col]
         flags = [col.replace('flag_', '') for col in feature_names if 'flag_' in col]
         
-        # Create dummy variables only for the categories we had in training
-        protocol_dummies = pd.get_dummies(df_processed['protocol_type'], prefix='protocol_type')[['protocol_type_' + p for p in protocol_types]]
-        service_dummies = pd.get_dummies(df_processed['service'], prefix='service')[['service_' + s for s in services]]
-        flag_dummies = pd.get_dummies(df_processed['flag'], prefix='flag')[['flag_' + f for f in flags]]
+        # Create dummy variables only for the categories seen during training
+        protocol_dummies = pd.get_dummies(df_processed['protocol_type'], prefix='protocol_type')
+        service_dummies = pd.get_dummies(df_processed['service'], prefix='service')
+        flag_dummies = pd.get_dummies(df_processed['flag'], prefix='flag')
+        
+        # Retain only the desired columns (if a column is missing, add it later with zeros)
+        protocol_cols = ['protocol_type_' + p for p in protocol_types]
+        service_cols = ['service_' + s for s in services]
+        flag_cols = ['flag_' + f for f in flags]
+        
+        protocol_dummies = protocol_dummies.reindex(columns=protocol_cols, fill_value=0)
+        service_dummies = service_dummies.reindex(columns=service_cols, fill_value=0)
+        flag_dummies = flag_dummies.reindex(columns=flag_cols, fill_value=0)
         
         # Drop original categorical columns
         df_processed = df_processed.drop(['protocol_type', 'service', 'flag'], axis=1)
         
-        # Add dummy variables
+        # Concatenate dummy variables with the dataset
         df_processed = pd.concat([df_processed, protocol_dummies, service_dummies, flag_dummies], axis=1)
         
-        # Ensure all required columns exist and in correct order
+        # Ensure all required columns exist; if missing add with zeros
         for col in feature_names:
             if col not in df_processed.columns:
                 df_processed[col] = 0
@@ -83,7 +91,7 @@ def preprocess_data(df, models):
 # Load models first!
 models = load_models()
 
-# Session info in sidebar
+# Sidebar: Session info
 st.sidebar.info(f"""
     Session Info:
     - Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} UTC
@@ -91,7 +99,7 @@ st.sidebar.info(f"""
 """)
 
 if models:
-    # Display expected features
+    # Display expected feature info in an expander
     with st.expander("📋 Feature Information"):
         st.write("Required numeric features:")
         numeric_features = [f for f in models['feature_names'] 
@@ -114,40 +122,36 @@ if models:
 
     if uploaded_file:
         try:
-            # Load data
+            # Load data from CSV
             df = pd.read_csv(uploaded_file)
             st.success(f"Successfully loaded {len(df)} records!")
             
-            # Show data preview
+            # Data Preview
             with st.expander("Preview Raw Data"):
                 st.dataframe(df.head())
                 st.info(f"Dataset Shape: {df.shape}")
             
-            # Process data button
+            # Analyze data when button is clicked
             if st.button("Analyze Network Traffic"):
                 with st.spinner("Processing data..."):
-                    # Preprocess data
                     df_processed = preprocess_data(df, models)
                     
                     if df_processed is not None:
                         # Get predictions for each attack type
                         results = {}
                         for attack_type in ['DoS', 'Probe', 'R2L', 'U2R']:
-                            # Scale data
                             scaler = models['scalers'][attack_type]
                             X_scaled = scaler.transform(df_processed)
                             
-                            # Get predictions
                             ensemble_pred = models['ensemble_models'][attack_type].predict_proba(X_scaled)
                             results[attack_type] = {
                                 'probability': ensemble_pred[:, 1],
                                 'prediction': ensemble_pred[:, 1] > 0.5
                             }
                         
-                        # Display results
+                        # Display overall analysis results
                         st.subheader("Analysis Results")
                         
-                        # Summary metrics
                         cols = st.columns(4)
                         for attack_type, col in zip(results.keys(), cols):
                             detected = results[attack_type]['prediction'].sum()
@@ -158,30 +162,26 @@ if models:
                                     f"{(detected/len(df)*100):.2f}%"
                                 )
                         
-                        # Detailed analysis
+                        # Detailed analysis with histograms and high-risk connections
                         for attack_type in results:
                             with st.expander(f"{attack_type} Analysis"):
-                                # Distribution plot
                                 fig = px.histogram(
                                     x=results[attack_type]['probability'],
                                     title=f"{attack_type} Attack Probability Distribution"
                                 )
                                 st.plotly_chart(fig)
                                 
-                                # High risk connections
                                 high_risk = np.where(results[attack_type]['probability'] > 0.8)[0]
                                 if len(high_risk) > 0:
                                     st.warning(f"Found {len(high_risk)} high-risk connections!")
                                     st.dataframe(df.iloc[high_risk])
-
-                        # Download results
+                        
+                        # Option to download analysis results
                         if st.button("Download Results"):
-                            # Add predictions to original dataframe
                             for attack_type in results:
                                 df[f'{attack_type}_probability'] = results[attack_type]['probability']
                                 df[f'{attack_type}_prediction'] = results[attack_type]['prediction']
                             
-                            # Convert to CSV
                             csv = df.to_csv(index=False)
                             st.download_button(
                                 "Download Complete Analysis",
@@ -190,14 +190,13 @@ if models:
                                 "text/csv",
                                 key='download-csv'
                             )
-
         except Exception as e:
             st.error(f"Error processing file: {str(e)}")
             st.info("Please check your CSV file format.")
 else:
     st.error("⚠️ Could not load models. Please ensure 'all_models.pkl' exists in the app directory.")
 
-# Footer with model performance
+# Sidebar Footer: Model performance
 st.sidebar.markdown("---")
 st.sidebar.markdown("""
 ### Model Performance
