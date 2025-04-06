@@ -46,7 +46,7 @@ def preprocess_data(df):
             'flag': ['OTH', 'REJ', 'RSTO', 'RSTOS0', 'RSTR', 'S0', 'S1', 'S2', 'S3', 'SF', 'SH']
         }
 
-        # Base numeric features that should be present
+        # Base numeric features
         numeric_features = [
             'duration', 'src_bytes', 'dst_bytes', 'land', 'wrong_fragment', 'urgent',
             'hot', 'num_failed_logins', 'logged_in', 'num_compromised', 'root_shell',
@@ -121,36 +121,6 @@ def preprocess_data(df):
         st.write("Required columns:", numeric_features + list(expected_values.keys()))
         return None
 
-# Update the main app code to use the new preprocessing function
-if uploaded_file:
-    try:
-        # Load data
-        df = pd.read_csv(uploaded_file)
-        st.success(f"Successfully loaded {len(df)} records!")
-        
-        # Preview data
-        with st.expander("Preview Raw Data"):
-            st.dataframe(df.head())
-            st.info(f"Dataset Shape: {df.shape}")
-        
-        # Analysis button
-        if st.button("Analyze Network Traffic"):
-            with st.spinner("Processing data..."):
-                df_processed = preprocess_data(df)
-                
-                if df_processed is not None:
-                    # Make predictions
-                    results = {}
-                    for attack_type in ['DoS', 'Probe', 'R2L', 'U2R']:
-                        model = models['xgboost_models'][attack_type]['model']
-                        pred_proba = model.predict_proba(df_processed)
-                        results[attack_type] = {
-                            'probability': pred_proba[:, 1],
-                            'prediction': pred_proba[:, 1] > 0.5
-                        }
-                    
-                    # Rest of your display code remains the same...
-
 # Main UI
 st.title("🔒 Network Intrusion Detection System")
 st.markdown("""
@@ -165,13 +135,20 @@ This system uses ensemble machine learning to detect network attacks:
 # Load models
 models = load_models()
 
+# Sidebar
+st.sidebar.info(f"""
+    Session Info:
+    - Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} UTC
+    - User: shay-haan
+""")
+
 if models:
     # File upload section
     uploaded_file = st.file_uploader("Upload CSV file with network traffic data", type="csv")
     
     if uploaded_file:
         try:
-            # Load and preprocess data
+            # Load and process data
             df = pd.read_csv(uploaded_file)
             st.success(f"Successfully loaded {len(df)} records!")
             
@@ -183,21 +160,14 @@ if models:
             # Analysis button
             if st.button("Analyze Network Traffic"):
                 with st.spinner("Processing data..."):
-                    # Preprocess data
                     df_processed = preprocess_data(df)
                     
                     if df_processed is not None:
+                        # Make predictions
                         results = {}
-                        
-                        # Make predictions for each attack type
                         for attack_type in ['DoS', 'Probe', 'R2L', 'U2R']:
-                            # Get model and scaler
                             model = models['xgboost_models'][attack_type]['model']
-                            
-                            # Make prediction
                             pred_proba = model.predict_proba(df_processed)
-                            
-                            # Store results
                             results[attack_type] = {
                                 'probability': pred_proba[:, 1],
                                 'prediction': pred_proba[:, 1] > 0.5
@@ -205,8 +175,6 @@ if models:
                         
                         # Display results
                         st.subheader("Analysis Results")
-                        
-                        # Summary metrics
                         cols = st.columns(4)
                         for attack_type, col in zip(results.keys(), cols):
                             detected = results[attack_type]['prediction'].sum()
@@ -226,7 +194,6 @@ if models:
                                 )
                                 st.plotly_chart(fig)
                                 
-                                # Show high-risk connections
                                 high_risk = np.where(results[attack_type]['probability'] > 0.8)[0]
                                 if len(high_risk) > 0:
                                     st.warning(f"Found {len(high_risk)} high-risk connections!")
@@ -234,12 +201,10 @@ if models:
                         
                         # Download results
                         if st.button("Download Results"):
-                            # Add predictions to original dataframe
                             for attack_type in results:
                                 df[f'{attack_type}_probability'] = results[attack_type]['probability']
                                 df[f'{attack_type}_prediction'] = results[attack_type]['prediction']
                             
-                            # Create download button
                             csv = df.to_csv(index=False)
                             st.download_button(
                                 "Download Complete Analysis",
@@ -252,15 +217,11 @@ if models:
         except Exception as e:
             st.error(f"Error processing file: {str(e)}")
             st.info("Please check your CSV file format.")
+
 else:
     st.error("⚠️ Could not load models. Please ensure 'all_models.pkl' exists in the app directory.")
 
-st.sidebar.info(f"""
-Session Info:
-- Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} UTC
-- User: shay-haan
-""")
-
+# Model performance info
 st.sidebar.markdown("---")
 st.sidebar.markdown("""
 ### Model Performance
