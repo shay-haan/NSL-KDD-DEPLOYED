@@ -44,6 +44,18 @@ def preprocess_data(df, models):
         # Work on a copy of the dataframe
         df_processed = df.copy()
         
+        # Define attack types (same as in training)
+        attack_types = {
+            'DoS': ['neptune', 'smurf', 'pod', 'teardrop', 'land', 'back', 'apache2', 'udpstorm', 'processtable', 'mailbomb'],
+            'Probe': ['ipsweep', 'nmap', 'portsweep', 'satan', 'mscan', 'saint'],
+            'R2L': ['guess_passwd', 'ftp_write', 'imap', 'phf', 'multihop', 'warezmaster', 'warezclient', 'spy', 'xsnoop', 'snmpguess', 'snmpgetattack', 'httptunnel', 'sendmail', 'named'],
+            'U2R': ['buffer_overflow', 'loadmodule', 'perl', 'rootkit', 'sqlattack', 'xterm', 'ps']
+        }
+        
+        # Create binary labels for each attack type
+        for attack_type, attack_list in attack_types.items():
+            df_processed[attack_type] = df_processed['label'].isin(attack_list).astype(int)
+            
         # First, verify we have all required numeric columns
         numeric_features = [col for col in feature_names 
                           if not any(x in col for x in ['protocol_type_', 'service_', 'flag_'])]
