@@ -13,17 +13,8 @@ st.set_page_config(
     layout="wide"
 )
 
-# Session info
-st.sidebar.info(f"""
-    Session Info:
-    - Date: 2025-04-06 03:10:23 UTC
-    - User: shay-haan
-""")
-
-# Load the saved models
 @st.cache_resource
 def load_models():
-    """Load all saved models"""
     try:
         with open('all_models.pkl', 'rb') as f:
             models = pickle.load(f)
@@ -33,7 +24,27 @@ def load_models():
         st.error(f"Error loading models: {str(e)}")
         return None
 
-# Main title
+def preprocess_data(df, feature_names):
+    """Preprocess the input data to match training format"""
+    try:
+        # Create dummy variables for categorical features
+        categorical_features = ['protocol_type', 'service', 'flag']
+        df_processed = pd.get_dummies(df, columns=categorical_features, prefix=categorical_features)
+        
+        # Ensure all required columns exist
+        for col in feature_names:
+            if col not in df_processed.columns:
+                df_processed[col] = 0
+        
+        # Select only the required features in the correct order
+        df_processed = df_processed[feature_names]
+        
+        return df_processed
+    except Exception as e:
+        st.error(f"Error in preprocessing: {str(e)}")
+        return None
+
+# Main title and info
 st.title("🔒 Network Intrusion Detection System")
 st.markdown("""
 ### Research Project - Final Semester
@@ -48,91 +59,131 @@ This system uses ensemble machine learning to detect network attacks:
 models = load_models()
 
 if models:
+    # Show feature requirements
+    with st.expander("📋 Required Features Information"):
+        st.write("Your CSV file must contain the following features:")
+        required_features = [
+            'duration', 'protocol_type', 'service', 'flag', 'src_bytes', 
+            'dst_bytes', 'land', 'wrong_fragment', 'urgent', 'hot', 
+            'num_failed_logins', 'logged_in', 'num_compromised', 
+            'root_shell', 'su_attempted', 'num_root', 'num_file_creations',
+            'num_shells', 'num_access_files', 'num_outbound_cmds',
+            'is_host_login', 'is_guest_login', 'count', 'srv_count',
+            'serror_rate', 'srv_serror_rate', 'rerror_rate', 'srv_rerror_rate',
+            'same_srv_rate', 'diff_srv_rate', 'srv_diff_host_rate',
+            'dst_host_count', 'dst_host_srv_count', 'dst_host_same_srv_rate',
+            'dst_host_diff_srv_rate', 'dst_host_same_src_port_rate',
+            'dst_host_srv_diff_host_rate', 'dst_host_serror_rate',
+            'dst_host_srv_serror_rate', 'dst_host_rerror_rate',
+            'dst_host_srv_rerror_rate'
+        ]
+        st.write(", ".join(required_features))
+
     # File uploader
-    st.subheader("Upload Test Dataset")
     uploaded_file = st.file_uploader(
-        "Upload a CSV file containing network traffic data",
+        "Upload CSV file with network traffic data",
         type="csv"
     )
 
     if uploaded_file:
         try:
-            # Load and display data
+            # Load data
             df = pd.read_csv(uploaded_file)
             st.success(f"Successfully loaded {len(df)} records!")
             
             # Show data preview
-            with st.expander("Preview Data"):
+            with st.expander("Preview Raw Data"):
                 st.dataframe(df.head())
                 st.info(f"Dataset Shape: {df.shape}")
-
+            
+            # Verify required features
+            missing_features = [f for f in required_features if f not in df.columns]
+            if missing_features:
+                st.error(f"Missing required features: {', '.join(missing_features)}")
+                st.stop()
+            
             # Process data button
             if st.button("Analyze Network Traffic"):
                 with st.spinner("Processing data..."):
-                    # Get predictions for each attack type
-                    results = {}
-                    for attack_type in ['DoS', 'Probe', 'R2L', 'U2R']:
-                        # Scale data
-                        scaler = models['scalers'][attack_type]
-                        X_scaled = scaler.transform(df)
-                        
-                        # Get predictions from all models
-                        ensemble_pred = models['ensemble_models'][attack_type].predict_proba(X_scaled)
-                        xgb_pred = models['xgboost_models'][attack_type].predict_proba(X_scaled)
-                        lr_pred = models['logistic_models'][attack_type].predict_proba(X_scaled)
-                        
-                        results[attack_type] = {
-                            'Ensemble': ensemble_pred[:, 1],
-                            'XGBoost': xgb_pred[:, 1],
-                            'Logistic': lr_pred[:, 1]
-                        }
+                    # Preprocess data
+                    df_processed = preprocess_data(df, models['feature_names'])
                     
-                    # Display results
-                    st.subheader("Analysis Results")
-                    
-                    # Summary metrics
-                    cols = st.columns(4)
-                    for attack_type, col in zip(results.keys(), cols):
-                        detected = (results[attack_type]['Ensemble'] > 0.5).sum()
-                        with col:
-                            st.metric(
-                                f"{attack_type} Attacks",
-                                f"{detected}",
-                                f"{(detected/len(df)*100):.2f}%"
-                            )
-                    
-                    # Detailed analysis for each attack type
-                    for attack_type in results:
-                        with st.expander(f"{attack_type} Analysis"):
-                            # Plot probability distributions
-                            fig = px.histogram(
-                                pd.DataFrame(results[attack_type]),
-                                title=f"{attack_type} Attack Probability Distribution"
-                            )
-                            st.plotly_chart(fig)
+                    if df_processed is not None:
+                        # Get predictions for each attack type
+                        results = {}
+                        for attack_type in ['DoS', 'Probe', 'R2L', 'U2R']:
+                            # Scale data
+                            scaler = models['scalers'][attack_type]
+                            X_scaled = scaler.transform(df_processed)
                             
-                            # High risk connections
-                            high_risk = np.where(results[attack_type]['Ensemble'] > 0.8)[0]
-                            if len(high_risk) > 0:
-                                st.warning(f"Found {len(high_risk)} high-risk connections!")
-                                st.dataframe(df.iloc[high_risk])
-                    
-                    # Save results option
-                    if st.button("Save Results"):
-                        # Add predictions to dataframe
-                        for attack_type in results:
-                            df[f'{attack_type}_probability'] = results[attack_type]['Ensemble']
+                            # Get predictions
+                            ensemble_pred = models['ensemble_models'][attack_type].predict_proba(X_scaled)
+                            xgb_pred = models['xgboost_models'][attack_type].predict_proba(X_scaled)
+                            lr_pred = models['logistic_models'][attack_type].predict_proba(X_scaled)
+                            
+                            results[attack_type] = {
+                                'Ensemble': ensemble_pred[:, 1],
+                                'XGBoost': xgb_pred[:, 1],
+                                'Logistic': lr_pred[:, 1]
+                            }
                         
-                        # Save to CSV
-                        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                        df.to_csv(f'results_{timestamp}.csv', index=False)
-                        st.success("Results saved successfully!")
+                        # Display results
+                        st.subheader("Analysis Results")
+                        
+                        # Summary metrics
+                        cols = st.columns(4)
+                        for attack_type, col in zip(results.keys(), cols):
+                            detected = (results[attack_type]['Ensemble'] > 0.5).sum()
+                            with col:
+                                st.metric(
+                                    f"{attack_type} Attacks",
+                                    f"{detected}",
+                                    f"{(detected/len(df)*100):.2f}%"
+                                )
+                        
+                        # Detailed analysis
+                        for attack_type in results:
+                            with st.expander(f"{attack_type} Analysis"):
+                                # Distribution plot
+                                fig = px.histogram(
+                                    pd.DataFrame(results[attack_type]),
+                                    title=f"{attack_type} Attack Probability Distribution"
+                                )
+                                st.plotly_chart(fig)
+                                
+                                # High risk connections
+                                high_risk = np.where(results[attack_type]['Ensemble'] > 0.8)[0]
+                                if len(high_risk) > 0:
+                                    st.warning(f"Found {len(high_risk)} high-risk connections!")
+                                    st.dataframe(df.iloc[high_risk])
+                        
+                        # Download results
+                        if st.button("Download Results"):
+                            # Add predictions to original dataframe
+                            for attack_type in results:
+                                df[f'{attack_type}_probability'] = results[attack_type]['Ensemble']
+                            
+                            # Convert to CSV
+                            csv = df.to_csv(index=False)
+                            st.download_button(
+                                "Download Complete Analysis",
+                                csv,
+                                f"nids_analysis_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                                "text/csv",
+                                key='download-csv'
+                            )
 
         except Exception as e:
             st.error(f"Error processing file: {str(e)}")
-            st.info("Please ensure your CSV file has the correct format and features.")
+            st.info("Please check your CSV file format and required features.")
 
-# Footer with model performance
+# Sidebar info
+st.sidebar.info(f"""
+    Session Info:
+    - Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} UTC
+    - User: shay-haan
+""")
+
 st.sidebar.markdown("---")
 st.sidebar.markdown("""
 ### Model Performance
@@ -143,16 +194,3 @@ st.sidebar.markdown("""
 
 *Based on test dataset evaluation*
 """)
-
-# Requirements text
-requirements = """
-streamlit==1.22.0
-pandas==1.3.3
-numpy==1.21.2
-scikit-learn==0.24.2
-xgboost==1.4.2
-plotly==5.13.0
-"""
-
-with open('requirements.txt', 'w') as f:
-    f.write(requirements)
