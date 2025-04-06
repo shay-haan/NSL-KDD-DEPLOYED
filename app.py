@@ -30,8 +30,9 @@ def preprocess_data(df):
         # Define expected values from training - use EXACT values from training
         expected_values = {
             'protocol_type': ['icmp', 'tcp', 'udp'],
+            # Complete list of 70 services from training
             'service': [
-                'IRC', 'X11', 'Z39_50', 'auth', 'bgp', 'courier', 'csnet_ns', 
+                'IRC', 'X11', 'Z39_50', 'aol', 'auth', 'bgp', 'courier', 'csnet_ns', 
                 'ctf', 'daytime', 'discard', 'domain', 'domain_u', 'echo', 'eco_i', 
                 'ecr_i', 'efs', 'exec', 'finger', 'ftp', 'ftp_data', 'gopher', 
                 'hostnames', 'http', 'http_443', 'imap4', 'iso_tsap', 'klogin', 
@@ -40,7 +41,8 @@ def preprocess_data(df):
                 'other', 'pm_dump', 'pop_2', 'pop_3', 'printer', 'private', 
                 'remote_job', 'rje', 'shell', 'smtp', 'sql_net', 'ssh', 'sunrpc', 
                 'supdup', 'systat', 'telnet', 'tftp_u', 'tim_i', 'time', 'urp_i', 
-                'uucp', 'uucp_path', 'vmnet', 'whois'
+                'uucp', 'uucp_path', 'vmnet', 'whois', 'http_8001', 'http_2784',
+                'red_i', 'urh_i', 'spy'
             ],
             'flag': ['OTH', 'REJ', 'RSTO', 'RSTOS0', 'RSTR', 'S0', 'S1', 'S2', 'S3', 'SF', 'SH']
         }
@@ -70,30 +72,31 @@ def preprocess_data(df):
             else:
                 df_processed[col] = pd.to_numeric(df_processed[col], errors='coerce').fillna(0)
 
-        # Create one-hot encoded features
-        categorical_features = {}
+        # Create one-hot encoded columns for each categorical feature
+        encoded_features = []
+        
+        # Add numeric features first
+        numeric_df = df_processed[numeric_features]
+        encoded_features.append(numeric_df)
+        
+        # Process each categorical feature
         for feature, values in expected_values.items():
             # Create dummy variables
             dummies = pd.get_dummies(df_processed[feature], prefix=feature)
             
-            # Ensure all expected columns exist
-            expected_columns = [f"{feature}_{val}" for val in values]
-            for col in expected_columns:
-                if col not in dummies.columns:
-                    dummies[col] = 0
+            # Create columns for all expected values
+            for value in values:
+                col_name = f"{feature}_{value}"
+                if col_name not in dummies.columns:
+                    dummies[col_name] = 0
             
-            # Keep only expected columns in correct order
-            categorical_features[feature] = dummies[expected_columns]
+            # Only keep expected columns in the correct order
+            expected_cols = [f"{feature}_{value}" for value in values]
+            dummies = dummies[expected_cols]
+            encoded_features.append(dummies)
 
-        # Drop original categorical columns
-        df_processed = df_processed.drop(['protocol_type', 'service', 'flag'], axis=1)
-
-        # Select numeric features in correct order
-        df_processed = df_processed[numeric_features]
-
-        # Add categorical features in correct order
-        for feature in ['protocol_type', 'service', 'flag']:
-            df_processed = pd.concat([df_processed, categorical_features[feature]], axis=1)
+        # Combine all features
+        df_processed = pd.concat(encoded_features, axis=1)
 
         # Verify feature counts
         n_protocol = len(expected_values['protocol_type'])
@@ -101,32 +104,23 @@ def preprocess_data(df):
         n_flag = len(expected_values['flag'])
         n_numeric = len(numeric_features)
 
-        st.write("Feature count verification:")
+        st.write("\nFeature count verification:")
         st.write(f"Numeric features: {n_numeric}")
         st.write(f"Protocol features: {n_protocol}")
         st.write(f"Service features: {n_service}")
         st.write(f"Flag features: {n_flag}")
-        st.write(f"Total expected: {n_numeric + n_protocol + n_service + n_flag}")
-
-        # Verify column alignment
-        st.write("\nFeature Alignment Verification:")
-        st.write("\nOriginal categorical values:")
-        for feature in ['protocol_type', 'service', 'flag']:
-            st.write(f"{feature} unique values: {sorted(df[feature].unique())}")
-
-        st.write("\nFirst few samples feature values:")
-        st.write(df_processed.head())
-
-        # Verify model input shape
-        st.write("\nModel Input Shape Verification:")
-        st.write(f"Current input shape: {df_processed.shape}")
+        st.write(f"Total features: {df_processed.shape[1]}")
+        
+        # Verify shape
+        if df_processed.shape[1] != 122:
+            raise ValueError(f"Feature shape mismatch, expected: 122, got {df_processed.shape[1]}")
 
         return df_processed
 
     except Exception as e:
         st.error(f"Error processing file: {str(e)}")
-        st.write("Please check your CSV file format.")
-        st.write("Expected columns:", numeric_features + list(expected_values.keys()))
+        if 'df_processed' in locals():
+            st.write("Current features:", df_processed.columns.tolist())
         return None
 
 # Main UI
