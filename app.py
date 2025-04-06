@@ -88,9 +88,6 @@ def preprocess_data(df, models):
         st.write("Please check your CSV file format.")
         return None
 
-if df_processed is not None:
-    st.write("Features in processed data:", df_processed.columns.tolist())
-    st.write("Features expected by model:", models['feature_names'])
 
 # Load models first!
 models = load_models()
