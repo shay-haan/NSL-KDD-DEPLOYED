@@ -78,6 +78,7 @@ def preprocess_data(df, models):
         # Select only the required features in the correct order
         df_processed = df_processed[feature_names]
         
+        st.write("Processed feature names:", df_processed.columns.tolist())
         st.write("Number of features after preprocessing:", df_processed.shape[1])
         
         return df_processed
